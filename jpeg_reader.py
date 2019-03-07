@@ -9,9 +9,13 @@ class JpegReader:
             self.src = f.read()
         self.pos = 0
         self.meta = {}
+        self.scan_start_pos = None
         self.raw = None
+        self.npmat = None
 
     def read(self):
+        # https://en.wikipedia.org/wiki/JPEG#Syntax_and_structure
+        # Spec: https://www.w3.org/Graphics/JPEG/itu-t81.pdf
         assert self.word() == 0xffd8, 'SOI'
         self._skip_markers()
         self._read_quantization()
@@ -21,25 +25,30 @@ class JpegReader:
         self._read_scan()
         assert self.word() == 0xffd9, 'EOI'
         self.construct_image()
+        print(self.meta)
 
     def construct_image(self):
         for raw in self.raw:
             for i in range(1, len(raw)):
-                raw[i][0, 0] += raw[i - 1][0, 0]
+                raw[i][0, 0] += raw[i - 1][0, 0]  # DC prediction
         npmat = np.empty((self.meta['rows'], self.meta['cols'], 3), dtype=np.uint8)
         n = 0
         for i in range(0, self.meta['rows'], 16):
             for j in range(0, self.meta['cols'], 16):
+                # 4:2:0
+                # Y
                 npmat[i:i + 8, j:j + 8, 0] = idct(self.raw[0][n] * self.meta['QT0']) + 128
                 npmat[i:i + 8, j + 8:j + 16, 0] = idct(self.raw[0][n + 1] * self.meta['QT0']) + 128
                 npmat[i + 8:i + 16, j:j + 8, 0] = idct(self.raw[0][n + 2] * self.meta['QT0']) + 128
                 npmat[i + 8:i + 16, j + 8:j + 16, 0] = idct(self.raw[0][n + 3] * self.meta['QT0']) + 128
+                # Cb
                 npmat[i:i + 16, j:j + 16, 1] = (idct(self.raw[1][n // 4] * self.meta['QT1']) + 128) \
                     .repeat(2, axis=0).repeat(2, axis=1)
+                # Cr
                 npmat[i:i + 16, j:j + 16, 2] = (idct(self.raw[2][n // 4] * self.meta['QT1']) + 128) \
                     .repeat(2, axis=0).repeat(2, axis=1)
                 n += 4
-        Image.fromarray(npmat, 'YCbCr').show()
+        self.npmat = npmat
 
     def _skip_markers(self):
         while self.word() & 0xfff0 == 0xffe0:
@@ -94,6 +103,7 @@ class JpegReader:
         self.pos += n * 2
         self.pos += 3
         assert self.pos == limit, f'{self.pos} {limit}'
+        self.scan_start_pos = self.pos
 
     def _read_scan(self):
         for i in range(self.pos, len(self.src) - 1):
@@ -118,7 +128,7 @@ class JpegReader:
         block = [symbol]
         while start < len(source):
             zeros, symbol, start, offset = self.ac(t, source, start, offset)
-            if zeros == 0 and symbol == 0:
+            if zeros == 0 and symbol == 0:  # EOB
                 block.extend([0] * (64 - len(block)))
                 break
             if zeros:
@@ -179,4 +189,6 @@ def idct(image):
 
 
 if __name__ == '__main__':
-    JpegReader('Lenna.jpg').read()
+    r = JpegReader('Lenna.jpg')
+    r.read()
+    Image.fromarray(r.npmat, 'YCbCr').show()
