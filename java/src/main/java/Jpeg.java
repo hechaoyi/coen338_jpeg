@@ -1,7 +1,5 @@
 import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -23,6 +21,7 @@ public class Jpeg {
     private List<int[]> componentY = new ArrayList<>();
     private List<int[]> componentCb = new ArrayList<>();
     private List<int[]> componentCr = new ArrayList<>();
+    private Map<Huffman, Map<Integer, Integer>> dcFreqStats = new HashMap<>();
 
     public Jpeg(String inputFileName, String outputFileName) {
         this.inputFileName = inputFileName;
@@ -119,15 +118,19 @@ public class Jpeg {
             int id = this.readWord(1);
             byte[] bytes = this.read(length - 3);
             var huffman = new Huffman(bytes);
-            if ((id & 0x10) == 0 && (id & 0x01) == 0)
+            if ((id & 0x10) == 0 && (id & 0x01) == 0) {
                 this.dc0 = huffman;
-            else if ((id & 0x10) == 0 && (id & 0x01) != 0)
+                huffman.setName("DC0");
+            } else if ((id & 0x10) == 0 && (id & 0x01) != 0) {
                 this.dc1 = huffman;
-            else if ((id & 0x10) != 0 && (id & 0x01) == 0)
+                huffman.setName("DC1");
+            } else if ((id & 0x10) != 0 && (id & 0x01) == 0) {
                 this.ac0 = huffman;
-            else if ((id & 0x10) != 0 && (id & 0x01) != 0)
+                huffman.setName("AC0");
+            } else if ((id & 0x10) != 0 && (id & 0x01) != 0) {
                 this.ac1 = huffman;
-            else
+                huffman.setName("AC1");
+            } else
                 throw new IllegalStateException("Huffman table id not supported");
             this.writeWord(os, 0xffc4, 2);
             this.writeWord(os, length, 2);
@@ -165,11 +168,16 @@ public class Jpeg {
         this.scan_current = this.nextByteInScan();
         this.scan_offset = 0;
         try {
+            int previousDcValueY = 0, previousDcValueCb = 0, previousDcValueCr = 0;
             while (true) {
-                for (int s = 0; s < 4; s++)
-                    this.componentY.add(this.readBlock(this.dc0, this.ac0));
-                this.componentCb.add(this.readBlock(this.dc1, this.ac1));
-                this.componentCr.add(this.readBlock(this.dc1, this.ac1));
+                for (int s = 0; s < 4; s++) {
+                    this.componentY.add(this.readBlock(this.dc0, this.ac0, previousDcValueY));
+                    previousDcValueY = this.componentY.get(this.componentY.size() - 1)[0];
+                }
+                this.componentCb.add(this.readBlock(this.dc1, this.ac1, previousDcValueCb));
+                previousDcValueCb = this.componentCb.get(this.componentCb.size() - 1)[0];
+                this.componentCr.add(this.readBlock(this.dc1, this.ac1, previousDcValueCr));
+                previousDcValueCr = this.componentCr.get(this.componentCr.size() - 1)[0];
             }
         } catch (NoSuchElementException | Huffman.NotFoundException e) {
             int mask = this.mask(8 - this.scan_offset);
@@ -183,9 +191,9 @@ public class Jpeg {
         }
     }
 
-    private int[] readBlock(Huffman dcHuffman, Huffman acHuffman) {
+    private int[] readBlock(Huffman dcHuffman, Huffman acHuffman, int previousDcValue) {
         int[] block = new int[64], zeroHolder = new int[1];
-        block[0] = this.readDcValue(dcHuffman);
+        block[0] = this.readDcValue(dcHuffman) + previousDcValue;
         int pos = 1;
         while (pos < 64) {
             int symbol = this.readAcValue(acHuffman, zeroHolder);
@@ -247,20 +255,29 @@ public class Jpeg {
         this.scan_current = 0;
         this.scan_offset = 0;
         int i = 0, j = 0, k = 0;
+        int previousDcValueY = 0, previousDcValueCb = 0, previousDcValueCr = 0;
         while (i < this.componentY.size()) {
-            for (int s = 0; s < 4; s++)
-                this.writeBlock(os, this.componentY.get(i++), this.dc0, this.ac0);
-            this.writeBlock(os, this.componentCb.get(j++), this.dc1, this.ac1);
-            this.writeBlock(os, this.componentCr.get(k++), this.dc1, this.ac1);
+            for (int s = 0; s < 4; s++) {
+                this.writeBlock(os, this.componentY.get(i), this.dc0, this.ac0, previousDcValueY);
+                previousDcValueY = this.componentY.get(i++)[0];
+            }
+            this.writeBlock(os, this.componentCb.get(j), this.dc1, this.ac1, previousDcValueCb);
+            previousDcValueCb = this.componentCb.get(j++)[0];
+            this.writeBlock(os, this.componentCr.get(k), this.dc1, this.ac1, previousDcValueCr);
+            previousDcValueCr = this.componentCr.get(k++)[0];
         }
         if (this.scan_offset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scan_offset), 8 - this.scan_offset);
         System.out.printf("Write scan end [%d,%d]\n", this.bytesWritten - startAt, this.bytesWritten);
+        for (var entry : this.dcFreqStats.entrySet()) {
+            System.out.printf("%s categories entropy: %f, distribution: %s\n",
+                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue().values());
+        }
     }
 
-    private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman) {
+    private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman, int previousDcValueY) {
         int[] bitsHolder = new int[1];
-        int value = this.encodeDcValue(block[0], dcHuffman, bitsHolder);
+        int value = this.encodeDcValue(block[0] - previousDcValueY, dcHuffman, bitsHolder);
         this.writeByteInScan(os, value, bitsHolder[0]);
         int last = 0;
         for (int i = 1; i < 64; i++) {
@@ -303,6 +320,8 @@ public class Jpeg {
     }
 
     private int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
+        this.dcFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
+                .compute(symbol, (s, c) -> c != null ? c + 1 : 1);
         int absSymbol = abs(symbol);
         for (int i = 0; i <= maxCategory; i++) {
             if (absSymbol < (int) pow(2, i)) {
@@ -394,6 +413,14 @@ public class Jpeg {
     private int mask(int lsb) {
         checkArgument(lsb >= 0 && lsb <= 30);
         return (int) pow(2, lsb) - 1;
+    }
+
+    private double entropy(Collection<Integer> frequences) {
+        int sum = frequences.stream().mapToInt(f -> f).sum();
+        return frequences.stream().mapToInt(f -> f)
+                .filter(f -> f > 0)
+                .mapToDouble(f -> 1.0 * f / sum * Math.log(1.0 * sum / f) / Math.log(2))
+                .sum();
     }
 
     public static void main(String[] args) throws IOException {

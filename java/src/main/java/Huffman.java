@@ -12,6 +12,7 @@ public class Huffman {
     private Map<Integer, Byte> code2symbol = new HashMap<>();
     private Map<Integer, Integer> codeLength = new HashMap<>();
     private int[] lengthList;
+    private String name;
 
     Huffman(byte[] bytes) {
         int code = 0, pos = 16;
@@ -79,6 +80,14 @@ public class Huffman {
         NotFoundException(String s) {
             super(s);
         }
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public String toString() {
