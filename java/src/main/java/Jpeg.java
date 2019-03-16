@@ -12,15 +12,17 @@ public class Jpeg {
     private InputStream is;
     private int bytesRead = 0;
     private int bytesWritten = 0;
+    protected int[] quantizationTable0;
+    protected int[] quantizationTable1;
     private Huffman dc0;
     private Huffman dc1;
     private Huffman ac0;
     private Huffman ac1;
     private int scan_current;
     private int scan_offset;
-    private List<int[]> componentY = new ArrayList<>();
-    private List<int[]> componentCb = new ArrayList<>();
-    private List<int[]> componentCr = new ArrayList<>();
+    protected List<int[]> componentY = new ArrayList<>();
+    protected List<int[]> componentCb = new ArrayList<>();
+    protected List<int[]> componentCr = new ArrayList<>();
     private Map<Huffman, Map<Integer, Integer>> dcFreqStats = new HashMap<>();
 
     public Jpeg(String inputFileName, String outputFileName) {
@@ -43,6 +45,8 @@ public class Jpeg {
             this.readHuffmanTable(os);
             this.readScanMarker(os);
             this.readScan();
+            this.depredictAndDequantize();
+            this.quantizeAndPredict();
             this.writeScan(os);
 
             // EOI
@@ -77,11 +81,21 @@ public class Jpeg {
         while (this.readWord(2, 2) == 0xffdb) {  // DQT
             int length = this.readWord(2);
             int id = this.readWord(1);
+            byte[] bytes = this.read(length - 3);
+            checkState(bytes.length == 64, "Unrecognized Quantization Table");
+            int[] table = new int[64];
+            for (int i = 0; i < 64; i++)
+                table[i] = bytes[i] & 0xff;
+            if ((id & 0x01) == 0)
+                this.quantizationTable0 = table;
+            else
+                this.quantizationTable1 = table;
             this.writeWord(os, 0xffdb, 2);
             this.writeWord(os, length, 2);
             this.writeWord(os, id, 1);
-            this.copy(os, length - 3);
+            this.write(os, bytes);
             System.out.printf("Quantization table %x found [%d,%d]\n", id, length, this.bytesRead);
+            // System.out.println(Arrays.toString(table));
         }
         this.rewind(2);
     }
@@ -168,16 +182,11 @@ public class Jpeg {
         this.scan_current = this.nextByteInScan();
         this.scan_offset = 0;
         try {
-            int previousDcValueY = 0, previousDcValueCb = 0, previousDcValueCr = 0;
             while (true) {
-                for (int s = 0; s < 4; s++) {
-                    this.componentY.add(this.readBlock(this.dc0, this.ac0, previousDcValueY));
-                    previousDcValueY = this.componentY.get(this.componentY.size() - 1)[0];
-                }
-                this.componentCb.add(this.readBlock(this.dc1, this.ac1, previousDcValueCb));
-                previousDcValueCb = this.componentCb.get(this.componentCb.size() - 1)[0];
-                this.componentCr.add(this.readBlock(this.dc1, this.ac1, previousDcValueCr));
-                previousDcValueCr = this.componentCr.get(this.componentCr.size() - 1)[0];
+                for (int s = 0; s < 4; s++)
+                    this.componentY.add(this.readBlock(this.dc0, this.ac0));
+                this.componentCb.add(this.readBlock(this.dc1, this.ac1));
+                this.componentCr.add(this.readBlock(this.dc1, this.ac1));
             }
         } catch (NoSuchElementException | Huffman.NotFoundException e) {
             int mask = this.mask(8 - this.scan_offset);
@@ -191,9 +200,9 @@ public class Jpeg {
         }
     }
 
-    private int[] readBlock(Huffman dcHuffman, Huffman acHuffman, int previousDcValue) {
+    private int[] readBlock(Huffman dcHuffman, Huffman acHuffman) {
         int[] block = new int[64], zeroHolder = new int[1];
-        block[0] = this.readDcValue(dcHuffman) + previousDcValue;
+        block[0] = this.readDcValue(dcHuffman);
         int pos = 1;
         while (pos < 64) {
             int symbol = this.readAcValue(acHuffman, zeroHolder);
@@ -250,21 +259,49 @@ public class Jpeg {
         return 1 - (int) pow(2, category) + symbol;
     }
 
+    protected void depredictAndDequantize() {
+        this.depredictAndDequantize(this.componentY, this.quantizationTable0);
+        this.depredictAndDequantize(this.componentCb, this.quantizationTable1);
+        this.depredictAndDequantize(this.componentCr, this.quantizationTable1);
+    }
+
+    private void depredictAndDequantize(List<int[]> component, int[] table) {
+        int lastDcValue = 0;
+        for (int[] block : component) {
+            block[0] += lastDcValue;
+            lastDcValue = block[0];
+            for (int i = 0; i < 64; i++)
+                block[i] *= table[i];
+        }
+    }
+
+    protected void quantizeAndPredict() {
+        this.quantizeAndPredict(this.componentY, this.quantizationTable0);
+        this.quantizeAndPredict(this.componentCb, this.quantizationTable1);
+        this.quantizeAndPredict(this.componentCr, this.quantizationTable1);
+    }
+
+    private void quantizeAndPredict(List<int[]> component, int[] table) {
+        int lastDcValue = 0;
+        for (int[] block : component) {
+            for (int i = 0; i < 64; i++)
+                block[i] /= table[i];
+            int temp = block[0];
+            block[0] -= lastDcValue;
+            lastDcValue = temp;
+        }
+    }
+
     private void writeScan(OutputStream os) {
         int startAt = this.bytesWritten;
         this.scan_current = 0;
         this.scan_offset = 0;
         int i = 0, j = 0, k = 0;
-        int previousDcValueY = 0, previousDcValueCb = 0, previousDcValueCr = 0;
         while (i < this.componentY.size()) {
-            for (int s = 0; s < 4; s++) {
-                this.writeBlock(os, this.componentY.get(i), this.dc0, this.ac0, previousDcValueY);
-                previousDcValueY = this.componentY.get(i++)[0];
-            }
-            this.writeBlock(os, this.componentCb.get(j), this.dc1, this.ac1, previousDcValueCb);
-            previousDcValueCb = this.componentCb.get(j++)[0];
-            this.writeBlock(os, this.componentCr.get(k), this.dc1, this.ac1, previousDcValueCr);
-            previousDcValueCr = this.componentCr.get(k++)[0];
+            for (int s = 0; s < 4; s++)
+                this.writeBlock(os, this.componentY.get(i++), this.dc0, this.ac0);
+            this.writeBlock(os, this.componentCb.get(j++), this.dc1, this.ac1);
+            this.writeBlock(os, this.componentCr.get(k++), this.dc1, this.ac1);
         }
         if (this.scan_offset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scan_offset), 8 - this.scan_offset);
@@ -275,9 +312,9 @@ public class Jpeg {
         }
     }
 
-    private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman, int previousDcValueY) {
+    private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman) {
         int[] bitsHolder = new int[1];
-        int value = this.encodeDcValue(block[0] - previousDcValueY, dcHuffman, bitsHolder);
+        int value = this.encodeDcValue(block[0], dcHuffman, bitsHolder);
         this.writeByteInScan(os, value, bitsHolder[0]);
         int last = 0;
         for (int i = 1; i < 64; i++) {
