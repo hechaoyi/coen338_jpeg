@@ -17,8 +17,8 @@ public class Jpeg {
     protected int[] quantizationTable1;
     private Huffman dc0;
     private Huffman dc1;
-    protected Huffman dca;
-    protected Huffman dcb;
+    private Huffman dca;
+    private Huffman dcb;
     private Huffman ac0;
     private Huffman ac1;
     private int scanCurrent;
@@ -27,6 +27,9 @@ public class Jpeg {
     protected List<int[]> componentY = new ArrayList<>();
     protected List<int[]> componentCb = new ArrayList<>();
     protected List<int[]> componentCr = new ArrayList<>();
+    protected int componentMarkY = 0;
+    protected int componentMarkCb = 0;
+    protected int componentMarkCr = 0;
     private Map<Huffman, Map<Integer, Integer>> symbolFreqStats = new HashMap<>();
     private Map<Huffman, Map<Integer, Integer>> categoryFreqStats = new HashMap<>();
 
@@ -189,11 +192,7 @@ public class Jpeg {
             this.depredictAndDequantize();
             this.quantizeAndPredict();
             this.writeScan(os);
-            this.componentY.clear();
-            this.componentCb.clear();
-            this.componentCr.clear();
         }
-        this.writeScanTailing(os);
 //        for (var entry : this.symbolFreqStats.entrySet()) {
 //            System.out.printf("%s entropy: %f, distribution: %s\n",
 //                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
@@ -241,7 +240,7 @@ public class Jpeg {
         }
     }
 
-    protected void readScan() {
+    private void readScan() {
         int startAt = this.bytesRead;
         this.scanCurrent = this.nextByteInScan();
         this.scanOffset = 0;
@@ -326,50 +325,51 @@ public class Jpeg {
     }
 
     protected void depredictAndDequantize() {
-        this.depredictAndDequantize(this.componentY, this.quantizationTable0);
-        this.depredictAndDequantize(this.componentCb, this.quantizationTable1);
-        this.depredictAndDequantize(this.componentCr, this.quantizationTable1);
+        this.depredictAndDequantize(this.componentY, this.componentMarkY, this.quantizationTable0);
+        this.depredictAndDequantize(this.componentCb, this.componentMarkCb, this.quantizationTable1);
+        this.depredictAndDequantize(this.componentCr, this.componentMarkCr, this.quantizationTable1);
     }
 
-    private void depredictAndDequantize(List<int[]> component, int[] table) {
+    private void depredictAndDequantize(List<int[]> component, int componentMark, int[] table) {
         int lastDcValue = 0;
-        for (int[] block : component) {
+        for (int i = componentMark; i < component.size(); i++) {
+            int[] block = component.get(i);
             block[0] += lastDcValue;
             lastDcValue = block[0];
-            for (int i = 0; i < 64; i++)
-                block[i] *= table[i];
+            for (int j = 0; j < 64; j++)
+                block[j] *= table[j];
         }
     }
 
     protected void quantizeAndPredict() {
-        this.quantizeAndPredict(this.componentY, this.quantizationTable0);
-        this.quantizeAndPredict(this.componentCb, this.quantizationTable1);
-        this.quantizeAndPredict(this.componentCr, this.quantizationTable1);
+        this.quantizeAndPredict(this.componentY, this.componentMarkY, this.quantizationTable0);
+        this.quantizeAndPredict(this.componentCb, this.componentMarkCb, this.quantizationTable1);
+        this.quantizeAndPredict(this.componentCr, this.componentMarkCr, this.quantizationTable1);
     }
 
-    private void quantizeAndPredict(List<int[]> component, int[] table) {
+    private void quantizeAndPredict(List<int[]> component, int componentMark, int[] table) {
         int lastDcValue = 0;
-        for (int[] block : component) {
-            for (int i = 0; i < 64; i++)
-                block[i] /= table[i];
+        for (int i = componentMark; i < component.size(); i++) {
+            int[] block = component.get(i);
+            for (int j = 0; j < 64; j++)
+                block[j] /= table[j];
             int temp = block[0];
             block[0] -= lastDcValue;
             lastDcValue = temp;
         }
     }
 
-    protected void writeScan(OutputStream os) {
+    private void writeScan(OutputStream os) {
         int startAt = this.bytesWritten;
         this.scanCurrent = 0;
         this.scanOffset = 0;
         Huffman dc0 = this.dca != null ? this.dca : this.dc0;
         Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
-        int i = 0, j = 0, k = 0;
-        while (i < this.componentY.size()) {
+        while (this.componentMarkY < this.componentY.size()) {
             for (int s = 0; s < 4; s++)
-                this.writeBlock(os, this.componentY.get(i++), dc0, this.ac0);
-            this.writeBlock(os, this.componentCb.get(j++), dc1, this.ac1);
-            this.writeBlock(os, this.componentCr.get(k++), dc1, this.ac1);
+                this.writeBlock(os, this.componentY.get(this.componentMarkY++), dc0, this.ac0);
+            this.writeBlock(os, this.componentCb.get(this.componentMarkCb++), dc1, this.ac1);
+            this.writeBlock(os, this.componentCr.get(this.componentMarkCr++), dc1, this.ac1);
         }
         if (this.scanOffset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scanOffset), 8 - this.scanOffset);
@@ -442,9 +442,6 @@ public class Jpeg {
         throw new IllegalStateException(String.format("Unexpected DC/AC value %d:%d", zeros, symbol));
     }
 
-    protected void writeScanTailing(OutputStream os) {
-    }
-
     /*
      * --------------------
      * Auxiliary functions
@@ -461,7 +458,7 @@ public class Jpeg {
         }
     }
 
-    protected void write(OutputStream os, byte[] bytes) {
+    private void write(OutputStream os, byte[] bytes) {
         try {
             os.write(bytes);
             this.bytesWritten += bytes.length;
@@ -509,7 +506,7 @@ public class Jpeg {
         }
     }
 
-    protected void writeWord(OutputStream os, int word, int n) {
+    private void writeWord(OutputStream os, int word, int n) {
         try {
             checkArgument(n <= 4 && n > 0);
             for (int i = (n - 1) * 8; i >= 0; i -= 8)
@@ -534,7 +531,7 @@ public class Jpeg {
     }
 
     public static void main(String[] args) throws IOException {
-        var jpeg = new Jpeg("./Lenna.jpg", "./Lenna.out");
+        var jpeg = new Jpeg("IMG_2269.jpg", "IMG_2269.out.jpg");
         jpeg.recompress();
     }
 }
