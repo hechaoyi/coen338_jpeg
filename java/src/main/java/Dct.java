@@ -5,14 +5,14 @@ public class Dct {
 
     public static double[][] dct(double[][] input) {
         double[][] output = new double[8][8];
-        for (int u = 0; u < 8; u++) {
-            for (int v = 0; v < 8; v++) {
+        for (int v = 0; v < 8; v++) {
+            for (int u = 0; u < 8; u++) {
                 double sum = 0;
-                for (int x = 0; x < 8; x++)
-                    for (int y = 0; y < 8; y++)
-                        sum += (input[x][y] - 128) * kernel(x, y, u, v);
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++)
+                        sum += (input[y][x] - 128) * kernel(x, y, u, v);
                 double cu = (u == 0) ? cucvZero : 1, cv = (v == 0) ? cucvZero : 1;
-                output[u][v] = (cu * cv) / 4 * sum;
+                output[v][u] = (cu * cv) / 4 * sum;
             }
         }
         return output;
@@ -20,16 +20,17 @@ public class Dct {
 
     public static double[][] idct(double[][] input) {
         double[][] output = new double[8][8];
-        for (int x = 0; x < 8; x++) {
-            for (int y = 0; y < 8; y++) {
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
                 double sum = 0;
-                for (int u = 0; u < 8; u++) {
-                    for (int v = 0; v < 8; v++) {
-                        double cu = (u == 0) ? cucvZero : 1, cv = (v == 0) ? cucvZero : 1;
-                        sum += cu * cv * input[u][v] * kernel(x, y, u, v);
+                for (int v = 0; v < 8; v++) {
+                    double cv = (v == 0) ? cucvZero : 1;
+                    for (int u = 0; u < 8; u++) {
+                        double cu = (u == 0) ? cucvZero : 1;
+                        sum += cu * cv * input[v][u] * kernel(x, y, u, v);
                     }
                 }
-                output[x][y] = sum / 4 + 128;
+                output[y][x] = sum / 4 + 128;
             }
         }
         return output;

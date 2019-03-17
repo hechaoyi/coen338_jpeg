@@ -12,6 +12,7 @@ public class Jpeg {
     private InputStream is;
     private int bytesRead = 0;
     private int bytesWritten = 0;
+    protected int width;
     protected int[] quantizationTable0;
     protected int[] quantizationTable1;
     private Huffman dc0;
@@ -107,6 +108,7 @@ public class Jpeg {
         int sample = this.readWord(1);
         int rows = this.readWord(2);
         int cols = this.readWord(2);
+        this.width = cols;
         int components = this.readWord(1);
         checkState(components == 3, "%s components not supported", components);
         int y = this.readWord(3);
