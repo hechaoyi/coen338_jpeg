@@ -1,5 +1,6 @@
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
@@ -8,15 +9,40 @@ import static java.lang.Math.abs;
 import static java.lang.Math.pow;
 
 class PiedPiperEncoder extends Jpeg {
-    public PiedPiperEncoder(String inputFileName, String outputFileName) {
+    private List<int[]> allComponentY = new ArrayList<>();
+    private List<int[]> allComponentCb = new ArrayList<>();
+    private List<int[]> allComponentCr = new ArrayList<>();
+
+    PiedPiperEncoder(String inputFileName, String outputFileName) {
         super(inputFileName, outputFileName);
     }
 
     @Override
     protected void quantizeAndPredict() {
+    }
+
+    @Override
+    protected void writeScan(OutputStream os) {
+        this.allComponentY.addAll(this.componentY);
+        this.allComponentCb.addAll(this.componentCb);
+        this.allComponentCr.addAll(this.componentCr);
+    }
+
+    @Override
+    protected void writeScanTailing(OutputStream os) {
+        this.componentY.addAll(this.allComponentY);
+        this.componentCb.addAll(this.allComponentCb);
+        this.componentCr.addAll(this.allComponentCr);
         this.quantizeAndPredict(this.componentY, this.quantizationTable0, true, this.width / 4);
         this.quantizeAndPredict(this.componentCb, this.quantizationTable1, false, this.width / 16);
         this.quantizeAndPredict(this.componentCr, this.quantizationTable1, false, this.width / 16);
+        int[] dc0 = new int[12], dc1 = new int[12];
+        this.calculateCategoryFrequencies(this.componentY, dc0);
+        this.calculateCategoryFrequencies(this.componentCb, dc1);
+        this.calculateCategoryFrequencies(this.componentCr, dc1);
+        this.writeHuffmanTable(super.dca = new Huffman(dc0), 0x0a, os);
+        this.writeHuffmanTable(super.dcb = new Huffman(dc1), 0x0b, os);
+        super.writeScan(os);
     }
 
     private void quantizeAndPredict(List<int[]> component, int[] table, boolean y, int w) {
@@ -30,17 +56,6 @@ class PiedPiperEncoder extends Jpeg {
         int[] zigzag = component.get(0);
         for (int i = 0; i < 64; i++)
             zigzag[i] /= table[i];
-    }
-
-    @Override
-    protected void writeScan(OutputStream os) {
-        int[] dc0 = new int[12], dc1 = new int[12];
-        this.calculateCategoryFrequencies(this.componentY, dc0);
-        this.calculateCategoryFrequencies(this.componentCb, dc1);
-        this.calculateCategoryFrequencies(this.componentCr, dc1);
-        this.writeHuffmanTable(super.dca = new Huffman(dc0), 0x0a, os);
-        this.writeHuffmanTable(super.dcb = new Huffman(dc1), 0x0b, os);
-        super.writeScan(os);
     }
 
     private void calculateCategoryFrequencies(List<int[]> component, int[] frequencies) {
@@ -65,7 +80,7 @@ class PiedPiperEncoder extends Jpeg {
 }
 
 class PiedPiperDecoder extends Jpeg {
-    public PiedPiperDecoder(String inputFileName, String outputFileName) {
+    PiedPiperDecoder(String inputFileName, String outputFileName) {
         super(inputFileName, outputFileName);
     }
 

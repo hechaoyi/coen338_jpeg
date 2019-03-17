@@ -50,15 +50,7 @@ public class Jpeg {
             this.readHuffmanTable(os);
             this.readQuantizationTables(os);
             this.readRestartIntervalMarker(os);
-            while (this.readScanMarker(os)) {
-                this.readScan();
-                this.depredictAndDequantize();
-                this.quantizeAndPredict();
-                this.writeScan(os);
-                this.componentY.clear();
-                this.componentCb.clear();
-                this.componentCr.clear();
-            }
+            this.readScanTrunks(os);
 
             // EOI
             checkState(this.readWord(2) == 0xffd9, "EOI not detected");
@@ -137,7 +129,7 @@ public class Jpeg {
         System.out.printf("Image size %dx%d [%d,%d]\n", rows, cols, length, this.bytesRead);
     }
 
-    protected void readHuffmanTable(OutputStream os) {
+    private void readHuffmanTable(OutputStream os) {
         // DHT, pdf P40 B.2.4.2
         while (this.readWord(2, 2) == 0xffc4) {
             int length = this.readWord(2);
@@ -189,6 +181,35 @@ public class Jpeg {
         } else {
             this.rewind(2);
         }
+    }
+
+    private void readScanTrunks(OutputStream os) {
+        while (this.readScanMarker(os)) {
+            this.readScan();
+            this.depredictAndDequantize();
+            this.quantizeAndPredict();
+            this.writeScan(os);
+            this.componentY.clear();
+            this.componentCb.clear();
+            this.componentCr.clear();
+        }
+        this.writeScanTailing(os);
+//        for (var entry : this.symbolFreqStats.entrySet()) {
+//            System.out.printf("%s entropy: %f, distribution: %s\n",
+//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
+//        }
+//        for (var entry : this.categoryFreqStats.entrySet()) {
+//            System.out.printf("%s category entropy: %f, distribution: %s\n",
+//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
+//        }
+        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
+        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
+        System.out.printf("DC length: %d; DC0 entropy %f, category entropy %f; DC1 entropy %f, category entropy %f\n",
+                this.dcValueBits / 8,
+                entropy(this.symbolFreqStats.get(dc0).values()),
+                entropy(this.categoryFreqStats.get(dc0).values()),
+                entropy(this.symbolFreqStats.get(dc1).values()),
+                entropy(this.categoryFreqStats.get(dc1).values()));
     }
 
     private boolean readScanMarker(OutputStream os) {
@@ -352,21 +373,7 @@ public class Jpeg {
         }
         if (this.scanOffset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scanOffset), 8 - this.scanOffset);
-        System.out.printf("Write scan end, dc value length: %d [%d,%d]\n",
-                this.dcValueBits / 8, this.bytesWritten - startAt, this.bytesWritten);
-//        for (var entry : this.symbolFreqStats.entrySet()) {
-//            System.out.printf("%s entropy: %f, distribution: %s\n",
-//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
-//        }
-//        for (var entry : this.categoryFreqStats.entrySet()) {
-//            System.out.printf("%s category entropy: %f, distribution: %s\n",
-//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
-//        }
-        System.out.printf("DC0 entropy %f, category entropy %f; DC1 entropy %f, category entropy %f\n",
-                entropy(this.symbolFreqStats.get(dc0).values()),
-                entropy(this.categoryFreqStats.get(dc0).values()),
-                entropy(this.symbolFreqStats.get(dc1).values()),
-                entropy(this.categoryFreqStats.get(dc1).values()));
+        System.out.printf("Write scan end [%d,%d]\n", this.bytesWritten - startAt, this.bytesWritten);
     }
 
     private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman) {
@@ -433,6 +440,9 @@ public class Jpeg {
             }
         }
         throw new IllegalStateException(String.format("Unexpected DC/AC value %d:%d", zeros, symbol));
+    }
+
+    protected void writeScanTailing(OutputStream os) {
     }
 
     /*
