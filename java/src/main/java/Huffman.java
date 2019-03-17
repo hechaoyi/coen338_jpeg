@@ -54,8 +54,13 @@ public class Huffman {
             int code = value >> (bits - length);
             if (this.codeLength.getOrDefault(code, 0) == length) {
                 offset = (offset + length) % 8;
-                if (offset == 0)
-                    current = next.getAsInt();
+                if (offset == 0) {
+                    try {
+                        current = next.getAsInt();
+                    } catch (NoSuchElementException e) {
+                        offset = 8;
+                    }
+                }
                 return new Result(this.code2symbol.get(code), current, offset);
             }
         }

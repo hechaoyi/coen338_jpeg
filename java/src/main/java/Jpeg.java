@@ -48,11 +48,17 @@ public class Jpeg {
             this.readQuantizationTables(os);
             this.readFrameMarker(os);
             this.readHuffmanTable(os);
-            this.readScanMarker(os);
-            this.readScan();
-            this.depredictAndDequantize();
-            this.quantizeAndPredict();
-            this.writeScan(os);
+            this.readQuantizationTables(os);
+            this.readRestartIntervalMarker(os);
+            while (this.readScanMarker(os)) {
+                this.readScan();
+                this.depredictAndDequantize();
+                this.quantizeAndPredict();
+                this.writeScan(os);
+                this.componentY.clear();
+                this.componentCb.clear();
+                this.componentCr.clear();
+            }
 
             // EOI
             checkState(this.readWord(2) == 0xffd9, "EOI not detected");
@@ -171,24 +177,47 @@ public class Jpeg {
         this.rewind(2);
     }
 
-    private void readScanMarker(OutputStream os) {
-        // SOS, pdf P37 B.2.3
-        checkState(this.readWord(2) == 0xffda, "SOS not detected");
-        int length = this.readWord(2);
-        int components = this.readWord(1);
-        checkState(components == 3, "%s components not supported", components);
-        int y = this.readWord(2);
-        int cb = this.readWord(2);
-        int cr = this.readWord(2);
-        checkState(y == 0x0100 && cb == 0x0211 && cr == 0x0311);
-        this.writeWord(os, 0xffda, 2);
-        this.writeWord(os, length, 2);
-        this.writeWord(os, components, 1);
-        this.writeWord(os, y, 2);
-        this.writeWord(os, cb, 2);
-        this.writeWord(os, cr, 2);
-        this.copy(os, 3);
-        System.out.printf("Read scan start [%d,%d]\n", length, this.bytesRead);
+    private void readRestartIntervalMarker(OutputStream os) {
+        // DRI, pdf P43 B.2.4.4
+        if (this.readWord(2, 2) == 0xffdd) {
+            checkState(this.readWord(2) == 4, "Restart interval segment length must be 4");
+            int restartInterval = this.readWord(2); // Specifies the number of MCU in the restart interval.
+            System.out.printf("Restart interval %d [6,%d]\n", restartInterval, this.bytesRead);
+            this.writeWord(os, 0xffdd, 2);
+            this.writeWord(os, 4, 2);
+            this.writeWord(os, restartInterval, 2);
+        } else {
+            this.rewind(2);
+        }
+    }
+
+    private boolean readScanMarker(OutputStream os) {
+        int marker = this.readWord(2, 2);
+        if (marker == 0xffda) { // SOS, pdf P37 B.2.3
+            int length = this.readWord(2);
+            int components = this.readWord(1);
+            checkState(components == 3, "%s components not supported", components);
+            int y = this.readWord(2);
+            int cb = this.readWord(2);
+            int cr = this.readWord(2);
+            checkState(y == 0x0100 && cb == 0x0211 && cr == 0x0311);
+            this.writeWord(os, 0xffda, 2);
+            this.writeWord(os, length, 2);
+            this.writeWord(os, components, 1);
+            this.writeWord(os, y, 2);
+            this.writeWord(os, cb, 2);
+            this.writeWord(os, cr, 2);
+            this.copy(os, 3);
+            System.out.printf("Read scan start [%d,%d]\n", length, this.bytesRead);
+            return true;
+        } else if ((marker & 0xfff8) == 0xffd0) { // RST 0-7
+            this.writeWord(os, marker, 2);
+            System.out.printf("Read scan restart [2,%d]\n", this.bytesRead);
+            return true;
+        } else {
+            this.rewind(2);
+            return false;
+        }
     }
 
     protected void readScan() {
@@ -359,8 +388,10 @@ public class Jpeg {
             this.writeByteInScan(os, value, bitsHolder[0]);
             last = i;
         }
-        value = this.encodeAcValue(0, 0, acHuffman, bitsHolder);
-        this.writeByteInScan(os, value, bitsHolder[0]);
+        if (last < 63) {
+            value = this.encodeAcValue(0, 0, acHuffman, bitsHolder);
+            this.writeByteInScan(os, value, bitsHolder[0]);
+        }
     }
 
     private void writeByteInScan(OutputStream os, int value, int bits) {
