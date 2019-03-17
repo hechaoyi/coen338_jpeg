@@ -17,14 +17,18 @@ public class Jpeg {
     protected int[] quantizationTable1;
     private Huffman dc0;
     private Huffman dc1;
+    protected Huffman dca;
+    protected Huffman dcb;
     private Huffman ac0;
     private Huffman ac1;
-    private int scan_current;
-    private int scan_offset;
+    private int scanCurrent;
+    private int scanOffset;
+    private int dcValueBits;
     protected List<int[]> componentY = new ArrayList<>();
     protected List<int[]> componentCb = new ArrayList<>();
     protected List<int[]> componentCr = new ArrayList<>();
-    private Map<Huffman, Map<Integer, Integer>> dcFreqStats = new HashMap<>();
+    private Map<Huffman, Map<Integer, Integer>> symbolFreqStats = new HashMap<>();
+    private Map<Huffman, Map<Integer, Integer>> categoryFreqStats = new HashMap<>();
 
     public Jpeg(String inputFileName, String outputFileName) {
         this.inputFileName = inputFileName;
@@ -127,33 +131,41 @@ public class Jpeg {
         System.out.printf("Image size %dx%d [%d,%d]\n", rows, cols, length, this.bytesRead);
     }
 
-    private void readHuffmanTable(OutputStream os) {
+    protected void readHuffmanTable(OutputStream os) {
         // DHT, pdf P40 B.2.4.2
         while (this.readWord(2, 2) == 0xffc4) {
             int length = this.readWord(2);
             int id = this.readWord(1);
             byte[] bytes = this.read(length - 3);
             var huffman = new Huffman(bytes);
-            if ((id & 0x10) == 0 && (id & 0x01) == 0) {
+            if ((id & 0xf0) == 0 && (id & 0x0f) == 0) {
                 this.dc0 = huffman;
                 huffman.setName("DC0");
-            } else if ((id & 0x10) == 0 && (id & 0x01) != 0) {
+            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 1) {
                 this.dc1 = huffman;
                 huffman.setName("DC1");
-            } else if ((id & 0x10) != 0 && (id & 0x01) == 0) {
+            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 10) {
+                this.dca = huffman;
+                huffman.setName("DCa");
+            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 11) {
+                this.dcb = huffman;
+                huffman.setName("DCb");
+            } else if ((id & 0xf0) != 0 && (id & 0x0f) == 0) {
                 this.ac0 = huffman;
                 huffman.setName("AC0");
-            } else if ((id & 0x10) != 0 && (id & 0x01) != 0) {
+            } else if ((id & 0xf0) != 0 && (id & 0x0f) == 1) {
                 this.ac1 = huffman;
                 huffman.setName("AC1");
             } else
                 throw new IllegalStateException("Huffman table id not supported");
-            this.writeWord(os, 0xffc4, 2);
-            this.writeWord(os, length, 2);
-            this.writeWord(os, id, 1);
-            this.write(os, bytes);
+            if (os != null) {
+                this.writeWord(os, 0xffc4, 2);
+                this.writeWord(os, length, 2);
+                this.writeWord(os, id, 1);
+                this.write(os, bytes);
+            }
             System.out.printf("Huffman table %s%d found [%d,%d]\n",
-                    (id & 0x10) == 0 ? "DC" : "AC", id & 0x01, length, this.bytesRead);
+                    (id & 0x10) == 0 ? "DC" : "AC", id & 0x0f, length, this.bytesRead);
             // System.out.println(huffman);
         }
         this.rewind(2);
@@ -179,20 +191,22 @@ public class Jpeg {
         System.out.printf("Read scan start [%d,%d]\n", length, this.bytesRead);
     }
 
-    private void readScan() {
+    protected void readScan() {
         int startAt = this.bytesRead;
-        this.scan_current = this.nextByteInScan();
-        this.scan_offset = 0;
+        this.scanCurrent = this.nextByteInScan();
+        this.scanOffset = 0;
+        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
+        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
         try {
             while (true) {
                 for (int s = 0; s < 4; s++)
-                    this.componentY.add(this.readBlock(this.dc0, this.ac0));
-                this.componentCb.add(this.readBlock(this.dc1, this.ac1));
-                this.componentCr.add(this.readBlock(this.dc1, this.ac1));
+                    this.componentY.add(this.readBlock(dc0, this.ac0));
+                this.componentCb.add(this.readBlock(dc1, this.ac1));
+                this.componentCr.add(this.readBlock(dc1, this.ac1));
             }
         } catch (NoSuchElementException | Huffman.NotFoundException e) {
-            int mask = this.mask(8 - this.scan_offset);
-            if ((this.scan_current & mask) == mask) {
+            int mask = this.mask(8 - this.scanOffset);
+            if ((this.scanCurrent & mask) == mask) {
                 System.out.printf("Read scan end Y:Cb:Cr - %d:%d:%d [%d,%d]\n",
                         this.componentY.size(), this.componentCb.size(), this.componentCr.size(),
                         this.bytesRead - startAt, this.bytesRead);
@@ -228,33 +242,33 @@ public class Jpeg {
     }
 
     private int readDcValue(Huffman huffman) {
-        var res = huffman.findSymbol(this.scan_current, this.scan_offset, this::nextByteInScan);
-        this.scan_current = res.current;
-        this.scan_offset = res.offset;
+        var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
+        this.scanCurrent = res.current;
+        this.scanOffset = res.offset;
         return this.readValueInCategory(res.symbol & 0xff);
     }
 
     private int readAcValue(Huffman huffman, int[] zeroHolder) {
-        var res = huffman.findSymbol(this.scan_current, this.scan_offset, this::nextByteInScan);
+        var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
         zeroHolder[0] = (res.symbol & 0xf0) >> 4;
-        this.scan_current = res.current;
-        this.scan_offset = res.offset;
+        this.scanCurrent = res.current;
+        this.scanOffset = res.offset;
         return this.readValueInCategory(res.symbol & 0x0f);
     }
 
     private int readValueInCategory(int category) {
         if (category == 0)
             return 0;
-        int bits = 8 - this.scan_offset;
-        int value = this.scan_current & this.mask(bits);
+        int bits = 8 - this.scanOffset;
+        int value = this.scanCurrent & this.mask(bits);
         while (bits < category) {
-            this.scan_current = this.nextByteInScan();
+            this.scanCurrent = this.nextByteInScan();
             bits += 8;
-            value = (value << 8) | this.scan_current;
+            value = (value << 8) | this.scanCurrent;
         }
-        this.scan_offset = (this.scan_offset + category) % 8;
-        if (this.scan_offset == 0)
-            this.scan_current = this.nextByteInScan();
+        this.scanOffset = (this.scanOffset + category) % 8;
+        if (this.scanOffset == 0)
+            this.scanCurrent = this.nextByteInScan();
         int symbol = value >> (bits - category);
         if ((symbol & (1 << (category - 1))) != 0)
             return symbol;
@@ -294,30 +308,43 @@ public class Jpeg {
         }
     }
 
-    private void writeScan(OutputStream os) {
+    protected void writeScan(OutputStream os) {
         int startAt = this.bytesWritten;
-        this.scan_current = 0;
-        this.scan_offset = 0;
+        this.scanCurrent = 0;
+        this.scanOffset = 0;
+        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
+        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
         int i = 0, j = 0, k = 0;
         while (i < this.componentY.size()) {
             for (int s = 0; s < 4; s++)
-                this.writeBlock(os, this.componentY.get(i++), this.dc0, this.ac0);
-            this.writeBlock(os, this.componentCb.get(j++), this.dc1, this.ac1);
-            this.writeBlock(os, this.componentCr.get(k++), this.dc1, this.ac1);
+                this.writeBlock(os, this.componentY.get(i++), dc0, this.ac0);
+            this.writeBlock(os, this.componentCb.get(j++), dc1, this.ac1);
+            this.writeBlock(os, this.componentCr.get(k++), dc1, this.ac1);
         }
-        if (this.scan_offset > 0)
-            this.writeByteInScan(os, 0xff & this.mask(8 - this.scan_offset), 8 - this.scan_offset);
-        System.out.printf("Write scan end [%d,%d]\n", this.bytesWritten - startAt, this.bytesWritten);
-        for (var entry : this.dcFreqStats.entrySet()) {
-            System.out.printf("%s categories entropy: %f, distribution: %s\n",
-                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue().values());
-        }
+        if (this.scanOffset > 0)
+            this.writeByteInScan(os, 0xff & this.mask(8 - this.scanOffset), 8 - this.scanOffset);
+        System.out.printf("Write scan end, dc value length: %d [%d,%d]\n",
+                this.dcValueBits / 8, this.bytesWritten - startAt, this.bytesWritten);
+//        for (var entry : this.symbolFreqStats.entrySet()) {
+//            System.out.printf("%s entropy: %f, distribution: %s\n",
+//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
+//        }
+//        for (var entry : this.categoryFreqStats.entrySet()) {
+//            System.out.printf("%s category entropy: %f, distribution: %s\n",
+//                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
+//        }
+        System.out.printf("DC0 entropy %f, category entropy %f; DC1 entropy %f, category entropy %f\n",
+                entropy(this.symbolFreqStats.get(dc0).values()),
+                entropy(this.categoryFreqStats.get(dc0).values()),
+                entropy(this.symbolFreqStats.get(dc1).values()),
+                entropy(this.categoryFreqStats.get(dc1).values()));
     }
 
     private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman) {
         int[] bitsHolder = new int[1];
         int value = this.encodeDcValue(block[0], dcHuffman, bitsHolder);
         this.writeByteInScan(os, value, bitsHolder[0]);
+        this.dcValueBits += bitsHolder[0];
         int last = 0;
         for (int i = 1; i < 64; i++) {
             if (block[i] == 0)
@@ -337,16 +364,16 @@ public class Jpeg {
     }
 
     private void writeByteInScan(OutputStream os, int value, int bits) {
-        this.scan_current = (this.scan_current << bits) | value;
-        this.scan_offset += bits;
-        while (this.scan_offset >= 8) {
-            bits = this.scan_offset - 8;
-            value = (this.scan_current & ~this.mask(bits)) >> bits;
+        this.scanCurrent = (this.scanCurrent << bits) | value;
+        this.scanOffset += bits;
+        while (this.scanOffset >= 8) {
+            bits = this.scanOffset - 8;
+            value = (this.scanCurrent & ~this.mask(bits)) >> bits;
             this.writeWord(os, value, 1);
             if (value == 0xff)
                 this.writeWord(os, 0x00, 1);
-            this.scan_current &= this.mask(bits);
-            this.scan_offset -= 8;
+            this.scanCurrent &= this.mask(bits);
+            this.scanOffset -= 8;
         }
     }
 
@@ -359,12 +386,15 @@ public class Jpeg {
     }
 
     private int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
-        this.dcFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
+        this.symbolFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
                 .compute(symbol, (s, c) -> c != null ? c + 1 : 1);
         int absSymbol = abs(symbol);
         for (int i = 0; i <= maxCategory; i++) {
             if (absSymbol < (int) pow(2, i)) {
-                int code = huffman.findCode((byte) ((zeros << 4) | i), bitsHolder);
+                int category = (zeros << 4) | i;
+                this.categoryFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
+                        .compute(category, (s, c) -> c != null ? c + 1 : 1);
+                int code = huffman.findCode((byte) category, bitsHolder);
                 bitsHolder[0] += i;
                 if (symbol < 0)
                     symbol += (int) pow(2, i) - 1;
@@ -390,7 +420,7 @@ public class Jpeg {
         }
     }
 
-    private void write(OutputStream os, byte[] bytes) {
+    protected void write(OutputStream os, byte[] bytes) {
         try {
             os.write(bytes);
             this.bytesWritten += bytes.length;
@@ -438,7 +468,7 @@ public class Jpeg {
         }
     }
 
-    private void writeWord(OutputStream os, int word, int n) {
+    protected void writeWord(OutputStream os, int word, int n) {
         try {
             checkArgument(n <= 4 && n > 0);
             for (int i = (n - 1) * 8; i >= 0; i -= 8)
@@ -454,9 +484,9 @@ public class Jpeg {
         return (int) pow(2, lsb) - 1;
     }
 
-    private double entropy(Collection<Integer> frequences) {
-        int sum = frequences.stream().mapToInt(f -> f).sum();
-        return frequences.stream().mapToInt(f -> f)
+    private double entropy(Collection<Integer> frequencies) {
+        int sum = frequencies.stream().mapToInt(f -> f).sum();
+        return frequencies.stream().mapToInt(f -> f)
                 .filter(f -> f > 0)
                 .mapToDouble(f -> 1.0 * f / sum * Math.log(1.0 * sum / f) / Math.log(2))
                 .sum();

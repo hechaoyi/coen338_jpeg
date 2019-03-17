@@ -1,7 +1,11 @@
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
+
+import static java.lang.Math.abs;
+import static java.lang.Math.pow;
 
 class PiedPiperEncoder extends Jpeg {
     public PiedPiperEncoder(String inputFileName, String outputFileName) {
@@ -26,6 +30,37 @@ class PiedPiperEncoder extends Jpeg {
         int[] zigzag = component.get(0);
         for (int i = 0; i < 64; i++)
             zigzag[i] /= table[i];
+    }
+
+    @Override
+    protected void writeScan(OutputStream os) {
+        int[] dc0 = new int[12], dc1 = new int[12];
+        this.calculateCategoryFrequencies(this.componentY, dc0);
+        this.calculateCategoryFrequencies(this.componentCb, dc1);
+        this.calculateCategoryFrequencies(this.componentCr, dc1);
+        this.writeHuffmanTable(super.dca = new Huffman(dc0), 0x0a, os);
+        this.writeHuffmanTable(super.dcb = new Huffman(dc1), 0x0b, os);
+        super.writeScan(os);
+    }
+
+    private void calculateCategoryFrequencies(List<int[]> component, int[] frequencies) {
+        component.stream().mapToInt(b -> abs(b[0])).forEach(dc -> {
+            for (int i = 0; i < 12; i++) {
+                if (dc < (int) pow(2, i)) {
+                    frequencies[i]++;
+                    return;
+                }
+            }
+            throw new IllegalStateException(String.format("Unexpected DC/AC value %d", dc));
+        });
+    }
+
+    private void writeHuffmanTable(Huffman huffman, int id, OutputStream os) {
+        byte[] bytes = huffman.getBytes();
+        super.writeWord(os, 0xffc4, 2);
+        super.writeWord(os, bytes.length + 3, 2);
+        super.writeWord(os, id, 1);
+        super.write(os, bytes);
     }
 }
 
@@ -52,6 +87,14 @@ class PiedPiperDecoder extends Jpeg {
             double prediction = PiedPiper.predict(i, component::get, y, w);
             zigzag[0] = (zigzag[0] + (int) Math.round(prediction / table[0])) * table[0];
         }
+    }
+
+    @Override
+    protected void readScan() {
+        super.readHuffmanTable(null);
+        super.readScan();
+        super.dca = null;
+        super.dcb = null;
     }
 }
 

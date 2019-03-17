@@ -1,6 +1,4 @@
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.function.IntSupplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -13,6 +11,7 @@ public class Huffman {
     private Map<Integer, Integer> codeLength = new HashMap<>();
     private int[] lengthList;
     private String name;
+    private byte[] bytes;
 
     Huffman(byte[] bytes) {
         int code = 0, pos = 16;
@@ -29,6 +28,11 @@ public class Huffman {
             }
         }
         this.lengthList = codeLength.values().stream().mapToInt(Integer::intValue).distinct().sorted().toArray();
+        this.bytes = bytes;
+    }
+
+    Huffman(int[] frequencies) {
+        this(TreeNode.build(frequencies));
     }
 
     public int findCode(byte symbol, int[] bitsHolder) {
@@ -90,8 +94,80 @@ public class Huffman {
         this.name = name;
     }
 
+    public byte[] getBytes() {
+        return bytes;
+    }
+
     public String toString() {
         return String.format("symbol2code: %s\ncode2symbol: %s\ncodeLength: %s\nlengthList: %s",
                 this.symbol2code, this.code2symbol, this.codeLength, Arrays.toString(this.lengthList));
+    }
+
+    public static void main(String[] args) {
+        int[] input1 = {528, 762, 605, 390, 185, 30};
+        System.out.println(new Huffman(input1));
+        int[] input2 = {383, 514, 269, 81, 1, 2};
+        System.out.println(new Huffman(input2));
+    }
+}
+
+class TreeNode implements Comparable<TreeNode> {
+    private final int symbol;
+    private final int freq;
+    private final TreeNode left, right;
+
+    TreeNode(int symbol, int freq, TreeNode left, TreeNode right) {
+        this.symbol = symbol;
+        this.freq = freq;
+        this.left = left;
+        this.right = right;
+    }
+
+    boolean isLeaf() {
+        return left == null && right == null;
+    }
+
+    @Override
+    public int compareTo(TreeNode o) {
+        return this.freq - o.freq;
+    }
+
+    static byte[] build(int[] frequencies) {
+        var heap = new PriorityQueue<TreeNode>();
+        for (int i = 0; i < frequencies.length; i++)
+            if (frequencies[i] > 0)
+                heap.add(new TreeNode(i, frequencies[i], null, null));
+        int count = heap.size();
+        while (heap.size() > 1) {
+            var right = heap.remove();
+            var left = heap.remove();
+            heap.add(new TreeNode(0, left.freq + right.freq, left, right));
+        }
+        var queue = new ArrayDeque<>(heap);
+        var result = new ArrayList<List<Integer>>();
+        while (!queue.isEmpty()) {
+            var level = new ArrayList<Integer>();
+            int size = queue.size();
+            for (int i = 0; i < size; i++) {
+                var node = queue.remove();
+                if (node.isLeaf()) {
+                    level.add(node.symbol);
+                } else {
+                    queue.add(node.left);
+                    queue.add(node.right);
+                }
+            }
+            result.add(level);
+        }
+        byte[] bytes = new byte[16 + count];
+        int pos = 16;
+        for (int i = 1; i < result.size(); i++) {
+            if (result.get(i).isEmpty())
+                continue;
+            bytes[i - 1] = (byte) result.get(i).size();
+            for (int value : result.get(i))
+                bytes[pos++] = (byte) value;
+        }
+        return bytes;
     }
 }
