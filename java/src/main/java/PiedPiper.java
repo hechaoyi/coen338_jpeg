@@ -155,9 +155,11 @@ class PiedPiper {
     }
 
     public static void main(String[] args) throws IOException {
-        var ppe = new PiedPiperEncoder("IMG_2269.jpg", "IMG_2269.jpp");
+        String file = "images/LV_3LNERpfENPwnTqbtPeQ.jpeg";
+        String jpp = file.replaceAll("[.].+?$", ".jpp");
+        var ppe = new PiedPiperEncoder(file, jpp);
         ppe.recompress();
-        var ppd = new PiedPiperDecoder("IMG_2269.jpp", "IMG_2269.out.jpg");
+        var ppd = new PiedPiperDecoder(jpp, file.replaceAll("[.].+?$", ".out.jpg"));
         ppd.recompress();
     }
 }

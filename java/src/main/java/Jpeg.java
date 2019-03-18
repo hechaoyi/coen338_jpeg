@@ -86,22 +86,24 @@ public class Jpeg {
     private void readQuantizationTables(OutputStream os) {
         while (this.readWord(2, 2) == 0xffdb) {  // DQT
             int length = this.readWord(2);
-            int id = this.readWord(1);
-            byte[] bytes = this.read(length - 3);
-            checkState(bytes.length == 64, "Unrecognized Quantization Table");
-            int[] table = new int[64];
-            for (int i = 0; i < 64; i++)
-                table[i] = bytes[i] & 0xff;
-            if ((id & 0x01) == 0)
-                this.quantizationTable0 = table;
-            else
-                this.quantizationTable1 = table;
+            checkState(length == 67 || length == 132, "Unrecognized Quantization Table");
             this.writeWord(os, 0xffdb, 2);
             this.writeWord(os, length, 2);
-            this.writeWord(os, id, 1);
-            this.write(os, bytes);
-            System.out.printf("Quantization table %x found [%d,%d]\n", id, length, this.bytesRead);
-            // System.out.println(Arrays.toString(table));
+            for (int j = (length - 2) / 65; j > 0; j--) {
+                int id = this.readWord(1);
+                byte[] bytes = this.read(64);
+                int[] table = new int[64];
+                for (int i = 0; i < 64; i++)
+                    table[i] = bytes[i] & 0xff;
+                if ((id & 0x01) == 0)
+                    this.quantizationTable0 = table;
+                else
+                    this.quantizationTable1 = table;
+                this.writeWord(os, id, 1);
+                this.write(os, bytes);
+                System.out.printf("Quantization table %x found [65,%d]\n", id, this.bytesRead);
+                // System.out.println(Arrays.toString(table));
+            }
         }
         this.rewind(2);
     }
@@ -136,40 +138,60 @@ public class Jpeg {
         // DHT, pdf P40 B.2.4.2
         while (this.readWord(2, 2) == 0xffc4) {
             int length = this.readWord(2);
-            int id = this.readWord(1);
-            byte[] bytes = this.read(length - 3);
-            var huffman = new Huffman(bytes);
-            if ((id & 0xf0) == 0 && (id & 0x0f) == 0) {
-                this.dc0 = huffman;
-                huffman.setName("DC0");
-            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 1) {
-                this.dc1 = huffman;
-                huffman.setName("DC1");
-            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 10) {
-                this.dca = huffman;
-                huffman.setName("DCa");
-            } else if ((id & 0xf0) == 0 && (id & 0x0f) == 11) {
-                this.dcb = huffman;
-                huffman.setName("DCb");
-            } else if ((id & 0xf0) != 0 && (id & 0x0f) == 0) {
-                this.ac0 = huffman;
-                huffman.setName("AC0");
-            } else if ((id & 0xf0) != 0 && (id & 0x0f) == 1) {
-                this.ac1 = huffman;
-                huffman.setName("AC1");
-            } else
-                throw new IllegalStateException("Huffman table id not supported");
             if (os != null) {
                 this.writeWord(os, 0xffc4, 2);
                 this.writeWord(os, length, 2);
-                this.writeWord(os, id, 1);
-                this.write(os, bytes);
             }
-            System.out.printf("Huffman table %s%d found [%d,%d]\n",
-                    (id & 0x10) == 0 ? "DC" : "AC", id & 0x0f, length, this.bytesRead);
-            // System.out.println(huffman);
+            int remaining = length - 2;
+            while (remaining > 0) {
+                int id = this.readWord(1);
+                byte[] bytes = this.read(16);
+                int count = 0;
+                for (byte b : bytes)
+                    count += b & 0xff;
+                bytes = Arrays.copyOf(bytes, 16 + count);
+                System.arraycopy(this.read(count), 0, bytes, 16, count);
+                remaining -= 17 + count;
+                var huffman = new Huffman(bytes);
+                if ((id & 0xf0) == 0 && (id & 0x0f) == 0) {
+                    this.dc0 = huffman;
+                    huffman.setName("DC0");
+                } else if ((id & 0xf0) == 0 && (id & 0x0f) == 1) {
+                    this.dc1 = huffman;
+                    huffman.setName("DC1");
+                } else if ((id & 0xf0) == 0 && (id & 0x0f) == 10) {
+                    this.dca = huffman;
+                    huffman.setName("DCa");
+                } else if ((id & 0xf0) == 0 && (id & 0x0f) == 11) {
+                    this.dcb = huffman;
+                    huffman.setName("DCb");
+                } else if ((id & 0xf0) != 0 && (id & 0x0f) == 0) {
+                    this.ac0 = huffman;
+                    huffman.setName("AC0");
+                } else if ((id & 0xf0) != 0 && (id & 0x0f) == 1) {
+                    this.ac1 = huffman;
+                    huffman.setName("AC1");
+                } else
+                    throw new IllegalStateException("Huffman table id not supported");
+                if (os != null) {
+                    this.writeWord(os, id, 1);
+                    this.write(os, bytes);
+                }
+                System.out.printf("Huffman table %s%d found [%d,%d]\n",
+                        (id & 0x10) == 0 ? "DC" : "AC", id & 0x0f, bytes.length + 1, this.bytesRead);
+                // System.out.println(huffman);
+            }
+            checkState(remaining == 0, "Unrecognized Huffman Table");
         }
         this.rewind(2);
+    }
+
+    private Huffman getDc0() {
+        return this.dc0;
+    }
+
+    private Huffman getDc1() {
+        return this.dc1;
     }
 
     private void readRestartIntervalMarker(OutputStream os) {
@@ -201,14 +223,12 @@ public class Jpeg {
 //            System.out.printf("%s category entropy: %f, distribution: %s\n",
 //                    entry.getKey().getName(), entropy(entry.getValue().values()), entry.getValue());
 //        }
-        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
-        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
         System.out.printf("DC length: %d; DC0 entropy %f, category entropy %f; DC1 entropy %f, category entropy %f\n",
                 this.dcValueBits / 8,
-                entropy(this.symbolFreqStats.get(dc0).values()),
-                entropy(this.categoryFreqStats.get(dc0).values()),
-                entropy(this.symbolFreqStats.get(dc1).values()),
-                entropy(this.categoryFreqStats.get(dc1).values()));
+                entropy(this.symbolFreqStats.get(this.getDc0()).values()),
+                entropy(this.categoryFreqStats.get(this.getDc0()).values()),
+                entropy(this.symbolFreqStats.get(this.getDc1()).values()),
+                entropy(this.categoryFreqStats.get(this.getDc1()).values()));
     }
 
     private boolean readScanMarker(OutputStream os) {
@@ -244,14 +264,12 @@ public class Jpeg {
         int startAt = this.bytesRead;
         this.scanCurrent = this.nextByteInScan();
         this.scanOffset = 0;
-        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
-        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
         try {
             while (true) {
                 for (int s = 0; s < 4; s++)
-                    this.componentY.add(this.readBlock(dc0, this.ac0));
-                this.componentCb.add(this.readBlock(dc1, this.ac1));
-                this.componentCr.add(this.readBlock(dc1, this.ac1));
+                    this.componentY.add(this.readBlock(this.getDc0(), this.ac0));
+                this.componentCb.add(this.readBlock(this.getDc1(), this.ac1));
+                this.componentCr.add(this.readBlock(this.getDc1(), this.ac1));
             }
         } catch (NoSuchElementException | Huffman.NotFoundException e) {
             int mask = this.mask(8 - this.scanOffset);
@@ -363,13 +381,11 @@ public class Jpeg {
         int startAt = this.bytesWritten;
         this.scanCurrent = 0;
         this.scanOffset = 0;
-        Huffman dc0 = this.dca != null ? this.dca : this.dc0;
-        Huffman dc1 = this.dcb != null ? this.dcb : this.dc1;
         while (this.componentMarkY < this.componentY.size()) {
             for (int s = 0; s < 4; s++)
-                this.writeBlock(os, this.componentY.get(this.componentMarkY++), dc0, this.ac0);
-            this.writeBlock(os, this.componentCb.get(this.componentMarkCb++), dc1, this.ac1);
-            this.writeBlock(os, this.componentCr.get(this.componentMarkCr++), dc1, this.ac1);
+                this.writeBlock(os, this.componentY.get(this.componentMarkY++), this.getDc0(), this.ac0);
+            this.writeBlock(os, this.componentCb.get(this.componentMarkCb++), this.getDc1(), this.ac1);
+            this.writeBlock(os, this.componentCr.get(this.componentMarkCr++), this.getDc1(), this.ac1);
         }
         if (this.scanOffset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scanOffset), 8 - this.scanOffset);
@@ -402,6 +418,12 @@ public class Jpeg {
     }
 
     private void writeByteInScan(OutputStream os, int value, int bits) {
+        checkState((value & ~this.mask(bits)) == 0);
+        if (bits > 24) {
+            this.writeByteInScan(os, (value & ~this.mask(bits - 24)) >> (bits - 24), 24);
+            value &= this.mask(bits - 24);
+            bits -= 24;
+        }
         this.scanCurrent = (this.scanCurrent << bits) | value;
         this.scanOffset += bits;
         while (this.scanOffset >= 8) {
@@ -531,7 +553,8 @@ public class Jpeg {
     }
 
     public static void main(String[] args) throws IOException {
-        var jpeg = new Jpeg("IMG_2269.jpg", "IMG_2269.out.jpg");
+        String file = "images/LV_3LNERpfENPwnTqbtPeQ.jpeg";
+        var jpeg = new Jpeg(file, file.replaceAll("[.].+?$", ".out.jpg"));
         jpeg.recompress();
     }
 }
