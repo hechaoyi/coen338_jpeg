@@ -1,32 +1,45 @@
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.Function;
+import java.util.stream.Collectors;
 
 class PiedPiperEncoder extends Jpeg {
+    private List<int[]> prevComponentY = new ArrayList<>();
+    private List<int[]> prevComponentCb = new ArrayList<>();
+    private List<int[]> prevComponentCr = new ArrayList<>();
+
     PiedPiperEncoder(String inputFileName, String outputFileName) {
         super(inputFileName, outputFileName);
     }
 
     @Override
     protected void quantizeAndPredict() {
-        this.quantizeAndPredict(this.componentY, this.componentMarkY, this.quantizationTable0, true, this.width / 4);
-        this.quantizeAndPredict(this.componentCb, this.componentMarkCb, this.quantizationTable1, false, this.width / 16);
-        this.quantizeAndPredict(this.componentCr, this.componentMarkCr, this.quantizationTable1, false, this.width / 16);
+        var prevComponentY = this.componentY.stream()
+                .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
+        var prevComponentCb = this.componentCb.stream()
+                .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
+        var prevComponentCr = this.componentCr.stream()
+                .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
+        this.quantizeAndPredict(this.componentY, this.prevComponentY,
+                this.quantizationTable0, true, this.width / 4);
+        this.quantizeAndPredict(this.componentCb, this.prevComponentCb,
+                this.quantizationTable1, false, this.width / 16);
+        this.quantizeAndPredict(this.componentCr, this.prevComponentCr,
+                this.quantizationTable1, false, this.width / 16);
+        this.prevComponentY = prevComponentY;
+        this.prevComponentCb = prevComponentCb;
+        this.prevComponentCr = prevComponentCr;
     }
 
-    private void quantizeAndPredict(List<int[]> component, int componentMark, int[] table, boolean y, int w) {
-        for (int i = component.size() - 1; i >= componentMark && i > 0; i--) {
-            double prediction = PiedPiper.predict(i, component::get, y, w);
+    private void quantizeAndPredict(List<int[]> component, List<int[]> prevComponent,
+                                    int[] table, boolean y, int w) {
+        for (int i = component.size() - 1; i >= 0; i--) {
+            double prediction = PiedPiper.predict(i, component, prevComponent, y, w);
             int[] zigzag = component.get(i);
             zigzag[0] = zigzag[0] / table[0] - (int) Math.round(prediction / table[0]);
             for (int j = 1; j < 64; j++)
                 zigzag[j] /= table[j];
-        }
-        if (componentMark == 0) {
-            int[] zigzag = component.get(0);
-            for (int i = 0; i < 64; i++)
-                zigzag[i] /= table[i];
         }
     }
 
@@ -63,29 +76,40 @@ class PiedPiperEncoder extends Jpeg {
 }
 
 class PiedPiperDecoder extends Jpeg {
+    private List<int[]> prevComponentY = new ArrayList<>();
+    private List<int[]> prevComponentCb = new ArrayList<>();
+    private List<int[]> prevComponentCr = new ArrayList<>();
+
     PiedPiperDecoder(String inputFileName, String outputFileName) {
         super(inputFileName, outputFileName);
     }
 
     @Override
     protected void depredictAndDequantize() {
-        this.depredictAndDequantize(this.componentY, this.componentMarkY, this.quantizationTable0, true, this.width / 4);
-        this.depredictAndDequantize(this.componentCb, this.componentMarkCb, this.quantizationTable1, false, this.width / 16);
-        this.depredictAndDequantize(this.componentCr, this.componentMarkCr, this.quantizationTable1, false, this.width / 16);
+        this.depredictAndDequantize(this.componentY, this.prevComponentY,
+                this.quantizationTable0, true, this.width / 4);
+        this.depredictAndDequantize(this.componentCb, this.prevComponentCb,
+                this.quantizationTable1, false, this.width / 16);
+        this.depredictAndDequantize(this.componentCr, this.prevComponentCr,
+                this.quantizationTable1, false, this.width / 16);
+        this.prevComponentY.clear();
+        for (var zigzag : this.componentY)
+            this.prevComponentY.add(Arrays.copyOf(zigzag, 64));
+        this.prevComponentCb.clear();
+        for (var zigzag : this.componentCb)
+            this.prevComponentCb.add(Arrays.copyOf(zigzag, 64));
+        this.prevComponentCr.clear();
+        for (var zigzag : this.componentCr)
+            this.prevComponentCr.add(Arrays.copyOf(zigzag, 64));
     }
 
-    private void depredictAndDequantize(List<int[]> component, int componentMark, int[] table, boolean y, int w) {
-        if (componentMark == 0) {
-            int[] zigzag = component.get(0);
-            for (int i = 0; i < 64; i++)
-                zigzag[i] *= table[i];
-            componentMark = 1;
-        }
-        for (int i = componentMark; i < component.size(); i++) {
+    private void depredictAndDequantize(List<int[]> component, List<int[]> prevComponent,
+                                        int[] table, boolean y, int w) {
+        for (int i = 0; i < component.size(); i++) {
             int[] zigzag = component.get(i);
             for (int j = 1; j < 64; j++)
                 zigzag[j] *= table[j];
-            double prediction = PiedPiper.predict(i, component::get, y, w);
+            double prediction = PiedPiper.predict(i, component, prevComponent, y, w);
             zigzag[0] = (zigzag[0] + (int) Math.round(prediction / table[0])) * table[0];
         }
     }
@@ -100,29 +124,35 @@ class PiedPiperDecoder extends Jpeg {
 }
 
 class PiedPiper {
-    public static double predict(int i, Function<Integer, int[]> zigzagGetter, boolean y, int w) {
-        int[] zigzag = zigzagGetter.apply(i);
-        int[][] block = ZigZag.zigzag2block(zigzag);
+    public static double predict(int i, List<int[]> component, List<int[]> prevComponent, boolean y, int w) {
+        int[][] block = ZigZag.zigzag2block(component.get(i));
         block[0][0] = 0;
-        int left = leftBlock(i, y, w), above = aboveBlock(i, y, w);
         double[] delta;
-        if (left < 0) {
+        int left = leftBlock(i, y, w), above = aboveBlock(i, y, w);
+        if (above >= 0) {
             delta = DctInt.idct1x8(block, 0);
-            minus(delta, 0, DctInt.idct1x8(ZigZag.zigzag2block(zigzagGetter.apply(above)), 7));
-            Arrays.sort(delta);
-            delta = Arrays.copyOfRange(delta, 3, delta.length - 3);
-        } else if (above < 0) {
+            minus(delta, 0, DctInt.idct1x8(ZigZag.zigzag2block(component.get(above)), 7));
+        } else if (above + prevComponent.size() >= 0) {
+            delta = DctInt.idct1x8(block, 0);
+            minus(delta, 0, DctInt.idct1x8(ZigZag.zigzag2block(prevComponent.get(above + prevComponent.size())), 7));
+        } else if (left >= 0) {
             delta = DctInt.idct8x1(block, 0);
-            minus(delta, 0, DctInt.idct8x1(ZigZag.zigzag2block(zigzagGetter.apply(left)), 7));
+            minus(delta, 0, DctInt.idct8x1(ZigZag.zigzag2block(component.get(left)), 7));
             Arrays.sort(delta);
             delta = Arrays.copyOfRange(delta, 3, delta.length - 3);
+            return Arrays.stream(delta).average().getAsDouble() * -8;
         } else {
-            delta = Arrays.copyOf(DctInt.idct8x1(block, 0), 16);
-            System.arraycopy(DctInt.idct1x8(block, 0), 0, delta, 8, 8);
-            minus(delta, 0, DctInt.idct8x1(ZigZag.zigzag2block(zigzagGetter.apply(left)), 7));
-            minus(delta, 8, DctInt.idct1x8(ZigZag.zigzag2block(zigzagGetter.apply(above)), 7));
+            return 0;
+        }
+        if (left >= 0) {
+            delta = Arrays.copyOf(delta, 16);
+            System.arraycopy(DctInt.idct8x1(block, 0), 0, delta, 8, 8);
+            minus(delta, 8, DctInt.idct8x1(ZigZag.zigzag2block(component.get(left)), 7));
             Arrays.sort(delta);
             delta = Arrays.copyOfRange(delta, 6, delta.length - 6);
+        } else {
+            Arrays.sort(delta);
+            delta = Arrays.copyOfRange(delta, 3, delta.length - 3);
         }
         return Arrays.stream(delta).average().getAsDouble() * -8;
     }

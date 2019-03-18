@@ -27,9 +27,6 @@ public class Jpeg {
     protected List<int[]> componentY = new ArrayList<>();
     protected List<int[]> componentCb = new ArrayList<>();
     protected List<int[]> componentCr = new ArrayList<>();
-    protected int componentMarkY = 0;
-    protected int componentMarkCb = 0;
-    protected int componentMarkCr = 0;
     private Map<Huffman, Map<Integer, Integer>> symbolFreqStats = new HashMap<>();
     private Map<Huffman, Map<Integer, Integer>> categoryFreqStats = new HashMap<>();
 
@@ -214,6 +211,9 @@ public class Jpeg {
             this.depredictAndDequantize();
             this.quantizeAndPredict();
             this.writeScan(os);
+            this.componentY.clear();
+            this.componentCb.clear();
+            this.componentCr.clear();
         }
 //        for (var entry : this.symbolFreqStats.entrySet()) {
 //            System.out.printf("%s entropy: %f, distribution: %s\n",
@@ -252,7 +252,7 @@ public class Jpeg {
             return true;
         } else if ((marker & 0xfff8) == 0xffd0) { // RST 0-7
             this.writeWord(os, marker, 2);
-            System.out.printf("Read scan restart [2,%d]\n", this.bytesRead);
+//            System.out.printf("Read scan restart [2,%d]\n", this.bytesRead);
             return true;
         } else {
             this.rewind(2);
@@ -274,9 +274,9 @@ public class Jpeg {
         } catch (NoSuchElementException | Huffman.NotFoundException e) {
             int mask = this.mask(8 - this.scanOffset);
             if ((this.scanCurrent & mask) == mask) {
-                System.out.printf("Read scan end Y:Cb:Cr - %d:%d:%d [%d,%d]\n",
-                        this.componentY.size(), this.componentCb.size(), this.componentCr.size(),
-                        this.bytesRead - startAt, this.bytesRead);
+//                System.out.printf("Read scan end Y:Cb:Cr - %d:%d:%d [%d,%d]\n",
+//                        this.componentY.size(), this.componentCb.size(), this.componentCr.size(),
+//                        this.bytesRead - startAt, this.bytesRead);
                 return;
             }
             throw e;
@@ -343,15 +343,14 @@ public class Jpeg {
     }
 
     protected void depredictAndDequantize() {
-        this.depredictAndDequantize(this.componentY, this.componentMarkY, this.quantizationTable0);
-        this.depredictAndDequantize(this.componentCb, this.componentMarkCb, this.quantizationTable1);
-        this.depredictAndDequantize(this.componentCr, this.componentMarkCr, this.quantizationTable1);
+        this.depredictAndDequantize(this.componentY, this.quantizationTable0);
+        this.depredictAndDequantize(this.componentCb, this.quantizationTable1);
+        this.depredictAndDequantize(this.componentCr, this.quantizationTable1);
     }
 
-    private void depredictAndDequantize(List<int[]> component, int componentMark, int[] table) {
+    private void depredictAndDequantize(List<int[]> component, int[] table) {
         int lastDcValue = 0;
-        for (int i = componentMark; i < component.size(); i++) {
-            int[] block = component.get(i);
+        for (int[] block : component) {
             block[0] += lastDcValue;
             lastDcValue = block[0];
             for (int j = 0; j < 64; j++)
@@ -360,15 +359,14 @@ public class Jpeg {
     }
 
     protected void quantizeAndPredict() {
-        this.quantizeAndPredict(this.componentY, this.componentMarkY, this.quantizationTable0);
-        this.quantizeAndPredict(this.componentCb, this.componentMarkCb, this.quantizationTable1);
-        this.quantizeAndPredict(this.componentCr, this.componentMarkCr, this.quantizationTable1);
+        this.quantizeAndPredict(this.componentY, this.quantizationTable0);
+        this.quantizeAndPredict(this.componentCb, this.quantizationTable1);
+        this.quantizeAndPredict(this.componentCr, this.quantizationTable1);
     }
 
-    private void quantizeAndPredict(List<int[]> component, int componentMark, int[] table) {
+    private void quantizeAndPredict(List<int[]> component, int[] table) {
         int lastDcValue = 0;
-        for (int i = componentMark; i < component.size(); i++) {
-            int[] block = component.get(i);
+        for (int[] block : component) {
             for (int j = 0; j < 64; j++)
                 block[j] /= table[j];
             int temp = block[0];
@@ -381,15 +379,16 @@ public class Jpeg {
         int startAt = this.bytesWritten;
         this.scanCurrent = 0;
         this.scanOffset = 0;
-        while (this.componentMarkY < this.componentY.size()) {
+        int i = 0, j = 0, k = 0;
+        while (i < this.componentY.size()) {
             for (int s = 0; s < 4; s++)
-                this.writeBlock(os, this.componentY.get(this.componentMarkY++), this.getDc0(), this.ac0);
-            this.writeBlock(os, this.componentCb.get(this.componentMarkCb++), this.getDc1(), this.ac1);
-            this.writeBlock(os, this.componentCr.get(this.componentMarkCr++), this.getDc1(), this.ac1);
+                this.writeBlock(os, this.componentY.get(i++), this.getDc0(), this.ac0);
+            this.writeBlock(os, this.componentCb.get(j++), this.getDc1(), this.ac1);
+            this.writeBlock(os, this.componentCr.get(k++), this.getDc1(), this.ac1);
         }
         if (this.scanOffset > 0)
             this.writeByteInScan(os, 0xff & this.mask(8 - this.scanOffset), 8 - this.scanOffset);
-        System.out.printf("Write scan end [%d,%d]\n", this.bytesWritten - startAt, this.bytesWritten);
+//        System.out.printf("Write scan end [%d,%d]\n", this.bytesWritten - startAt, this.bytesWritten);
     }
 
     private void writeBlock(OutputStream os, int[] block, Huffman dcHuffman, Huffman acHuffman) {
