@@ -185,7 +185,7 @@ class PiedPiper {
     }
 
     public static void main(String[] args) throws IOException {
-        String file = "images/LV_3LNERpfENPwnTqbtPeQ.jpeg";
+        String file = "images/IMG_2073.jpeg";
         String jpp = file.replaceAll("[.].+?$", ".jpp");
         var ppe = new PiedPiperEncoder(file, jpp);
         ppe.recompress();
