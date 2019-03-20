@@ -1,9 +1,9 @@
 import java.util.*;
 import java.util.function.IntSupplier;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.pow;
+import static preconditions.Preconditions.checkArgument;
+import static preconditions.Preconditions.checkState;
 
 public class Huffman {
     private Map<Byte, Integer> symbol2code = new HashMap<>();

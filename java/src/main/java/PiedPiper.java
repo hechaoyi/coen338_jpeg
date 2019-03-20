@@ -147,11 +147,22 @@ class PiedPiper {
     }
 
     public static void main(String[] args) throws IOException {
-        String file = "images/VEll6n1SaRHUyAiMHpg7tA.jpg";
-        String jpp = file.replaceAll("[.].+?$", ".jpp");
-        var ppe = new PiedPiperEncoder(file, jpp);
-        ppe.recompress();
-        var ppd = new PiedPiperDecoder(jpp, file.replaceAll("[.].+?$", ".out.jpg"));
-        ppd.recompress();
+        if (args.length != 2) {
+            System.err.println("Usage: java PiedPiper -encode <InputFile>");
+            System.err.println("Usage: java PiedPiper -decode <InputFile>");
+            System.exit(1);
+        } else if ("-encode".equals(args[0])) {
+            String inputFile = args[1];
+            String outputFile = args[1].replaceAll("[.].+?$", ".jpp");
+            new PiedPiperEncoder(inputFile, outputFile).recompress();
+        } else if ("-decode".equals(args[0])) {
+            String inputFile = args[1];
+            String outputFile = inputFile.replaceAll("[.].+?$", ".out.jpg");
+            new PiedPiperDecoder(inputFile, outputFile).recompress();
+        } else {
+            System.err.println("Usage: java PiedPiper -encode <InputFile>");
+            System.err.println("Usage: java PiedPiper -decode <InputFile>");
+            System.exit(1);
+        }
     }
 }

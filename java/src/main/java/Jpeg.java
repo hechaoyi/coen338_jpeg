@@ -1,10 +1,10 @@
 import java.io.*;
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.abs;
 import static java.lang.Math.pow;
+import static preconditions.Preconditions.checkArgument;
+import static preconditions.Preconditions.checkState;
 
 public class Jpeg {
     private final String inputFileName;
@@ -130,7 +130,7 @@ public class Jpeg {
         int cols = this.readWord(2);
         this.width = cols;
         int components = this.readWord(1);
-        checkState(components == 3, "%s components not supported", components);
+        checkState(components == 3, String.format("%s components not supported", components));
         int y = this.readWord(3);
         int cb = this.readWord(3);
         int cr = this.readWord(3);
@@ -240,7 +240,7 @@ public class Jpeg {
         if (marker == 0xffda) { // SOS, pdf P37 B.2.3
             int length = this.readWord(2);
             int components = this.readWord(1);
-            checkState(components == 3, "%s components not supported", components);
+            checkState(components == 3, String.format("%s components not supported", components));
             int y = this.readWord(2);
             int cb = this.readWord(2);
             int cr = this.readWord(2);
