@@ -40,7 +40,7 @@ class PiedPiperEncoder extends Jpeg {
             zigzag[0] = zigzag[0] / table[0] - (int) Math.round(prediction / table[0]);
             for (int j = 1; j < 64; j++)
                 zigzag[j] /= table[j];
-             component.set(i, ZigZag.transform(zigzag));
+//            component.set(i, ZigZag.transform(zigzag));
         }
     }
 }
@@ -147,7 +147,7 @@ class PiedPiper {
     }
 
     public static void main(String[] args) throws IOException {
-        String file = "images/gCDH8I0Ahyk0g2H31FVJDw.jpg";
+        String file = "images/VEll6n1SaRHUyAiMHpg7tA.jpg";
         String jpp = file.replaceAll("[.].+?$", ".jpp");
         var ppe = new PiedPiperEncoder(file, jpp);
         ppe.recompress();

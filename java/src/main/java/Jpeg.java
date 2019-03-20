@@ -60,17 +60,19 @@ public class Jpeg {
 
     private void printStatistics() {
         double entropyDc0 = entropy(this.symbolFreqStats.get(this.getDc0()).values());
+        int symbolDc0 = this.symbolFreqStats.get(this.getDc0()).values().stream().mapToInt(f -> f).sum();
         double entropyDc1 = entropy(this.symbolFreqStats.get(this.getDc1()).values());
-        double theoreticalDc = entropyDc0 * this.symbolFreqStats.get(this.getDc0()).values().stream().mapToInt(f -> f).sum()
-                + entropyDc1 * this.symbolFreqStats.get(this.getDc1()).values().stream().mapToInt(f -> f).sum();
-        System.out.printf("DC length: %d, theoretical limit %d; DC0 entropy %f, DC1 entropy %ff\n",
-                this.dcValueBits / 8, (int) theoreticalDc / 8, entropyDc0, entropyDc1);
+        int symbolDc1 = this.symbolFreqStats.get(this.getDc1()).values().stream().mapToInt(f -> f).sum();
+        double theoreticalDc = entropyDc0 * symbolDc0 + entropyDc1 * symbolDc1;
+        System.out.printf("DC length: %d, theoretical limit %d; DC0 entropy %f symbol %d, DC1 entropy %f symbol %d\n",
+                this.dcValueBits / 8, (int) theoreticalDc / 8, entropyDc0, symbolDc0, entropyDc1, symbolDc1);
         double entropyAc0 = entropy(this.symbolFreqStats.get(this.getAc0()).values());
+        int symbolAc0 = this.symbolFreqStats.get(this.getAc0()).values().stream().mapToInt(f -> f).sum();
         double entropyAc1 = entropy(this.symbolFreqStats.get(this.getAc1()).values());
-        double theoreticalAc = entropyAc0 * this.symbolFreqStats.get(this.getAc0()).values().stream().mapToInt(f -> f).sum()
-                + entropyAc1 * this.symbolFreqStats.get(this.getAc1()).values().stream().mapToInt(f -> f).sum();
-        System.out.printf("AC length: %d, theoretical limit %d; AC0 entropy %f, AC1 entropy %f\n",
-                this.acValueBits / 8, (int) theoreticalAc / 8, entropyAc0, entropyAc1);
+        int symbolAc1 = this.symbolFreqStats.get(this.getAc1()).values().stream().mapToInt(f -> f).sum();
+        double theoreticalAc = entropyAc0 * symbolAc0 + entropyAc1 * symbolAc1;
+        System.out.printf("AC length: %d, theoretical limit %d; AC0 entropy %f symbol %d, AC1 entropy %f symbol %d\n",
+                this.acValueBits / 8, (int) theoreticalAc / 8, entropyAc0, symbolAc0, entropyAc1, symbolAc1);
         System.out.printf("%d bytes read, %d bytes written\n", this.bytesRead, this.bytesWritten);
     }
 
@@ -142,7 +144,7 @@ public class Jpeg {
         this.writeWord(os, y, 3);
         this.writeWord(os, cb, 3);
         this.writeWord(os, cr, 3);
-//        System.out.printf("Image size %dx%d [%d,%d]\n", rows, cols, length, this.bytesRead);
+        System.out.printf("Image size %dx%d [%d]\n", rows, cols, this.bytesRead);
     }
 
     private void readHuffmanTable(OutputStream os) {
@@ -450,8 +452,11 @@ public class Jpeg {
     }
 
     protected int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
+        int sym = (zeros << (maxCategory + 1)) | (abs(symbol) & this.mask(maxCategory));
+        if (symbol < 0)
+            sym |= (1 << maxCategory);
         this.symbolFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
-                .compute(((zeros << 12) | symbol), (s, c) -> c != null ? c + 1 : 1);
+                .compute(sym, (s, c) -> c != null ? c + 1 : 1);
         int absSymbol = abs(symbol);
         for (int i = 0; i <= maxCategory; i++) {
             if (absSymbol < (int) pow(2, i)) {
@@ -501,7 +506,7 @@ public class Jpeg {
         }
     }
 
-    private void rewind(int n) {
+    protected void rewind(int n) {
         try {
             this.is.reset();
             this.bytesRead -= n;
@@ -510,11 +515,11 @@ public class Jpeg {
         }
     }
 
-    private int readWord(int n) {
+    protected int readWord(int n) {
         return this.readWord(n, 0);
     }
 
-    private int readWord(int n, int mark) {
+    protected int readWord(int n, int mark) {
         try {
             checkArgument(n <= 4 && n > 0);
             if (mark > 0)
@@ -541,7 +546,7 @@ public class Jpeg {
         }
     }
 
-    private int mask(int lsb) {
+    protected int mask(int lsb) {
         checkArgument(lsb >= 0 && lsb <= 30);
         return (int) pow(2, lsb) - 1;
     }
@@ -555,7 +560,7 @@ public class Jpeg {
     }
 
     public static void main(String[] args) throws IOException {
-        String file = "images/IMG_2073.jpeg";
+        String file = "images/VEll6n1SaRHUyAiMHpg7tA.jpg";
         var jpeg = new Jpeg(file, file.replaceAll("[.].+?$", ".out.jpg"));
         jpeg.recompress();
     }
