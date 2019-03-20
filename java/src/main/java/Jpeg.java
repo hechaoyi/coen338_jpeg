@@ -262,7 +262,7 @@ public class Jpeg {
         }
     }
 
-    private void readScan() {
+    protected void readScan() {
 //        int startAt = this.bytesRead;
         this.scanCurrent = this.nextByteInScan();
         this.scanOffset = 0;
@@ -299,7 +299,7 @@ public class Jpeg {
         return block;
     }
 
-    private int nextByteInScan() {
+    protected int nextByteInScan() {
         int b = this.readWord(1, 2);
         if (b != 0xff)
             return b;
@@ -310,14 +310,14 @@ public class Jpeg {
         throw new NoSuchElementException();
     }
 
-    private int readDcValue(Huffman huffman) {
+    protected int readDcValue(Huffman huffman) {
         var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
         this.scanCurrent = res.current;
         this.scanOffset = res.offset;
         return this.readValueInCategory(res.symbol & 0xff);
     }
 
-    private int readAcValue(Huffman huffman, int[] zeroHolder) {
+    protected int readAcValue(Huffman huffman, int[] zeroHolder) {
         var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
         zeroHolder[0] = (res.symbol & 0xf0) >> 4;
         this.scanCurrent = res.current;
@@ -377,7 +377,7 @@ public class Jpeg {
         }
     }
 
-    private void writeScan(OutputStream os) {
+    protected void writeScan(OutputStream os) {
 //        int startAt = this.bytesWritten;
         this.scanCurrent = 0;
         this.scanOffset = 0;
@@ -417,7 +417,7 @@ public class Jpeg {
         }
     }
 
-    private void writeByteInScan(OutputStream os, int value, int bits) {
+    protected void writeByteInScan(OutputStream os, int value, int bits) {
         checkState((value & ~this.mask(bits)) == 0);
         if (bits > 24) {
             this.writeByteInScan(os, (value & ~this.mask(bits - 24)) >> (bits - 24), 24);
@@ -449,7 +449,7 @@ public class Jpeg {
         return value;
     }
 
-    private int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
+    protected int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
         this.symbolFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
                 .compute(((zeros << 12) | symbol), (s, c) -> c != null ? c + 1 : 1);
         int absSymbol = abs(symbol);
@@ -530,7 +530,7 @@ public class Jpeg {
         }
     }
 
-    private void writeWord(OutputStream os, int word, int n) {
+    protected void writeWord(OutputStream os, int word, int n) {
         try {
             checkArgument(n <= 4 && n > 0);
             for (int i = (n - 1) * 8; i >= 0; i -= 8)
