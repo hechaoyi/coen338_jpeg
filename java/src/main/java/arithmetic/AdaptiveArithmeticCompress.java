@@ -23,13 +23,22 @@ public class AdaptiveArithmeticCompress {
 
     public static void main(String[] args) throws IOException {
         String file = "images/IMG_2073.jpeg";
+        String file1 = file.replaceAll("[.].+?$", ".ari");
+        String file2 = file.replaceAll("[.].+?$", ".out.jpg");
         File inputFile = new File(file);
-        File outputFile = new File(file.replaceAll("[.].+?$", ".out.jpg"));
+        File outputFile1 = new File(file1);
+        File outputFile2 = new File(file2);
 
         // Perform file compression
         try (InputStream in = new BufferedInputStream(new FileInputStream(inputFile));
-             BitOutputStream out = new BitOutputStream(new BufferedOutputStream(new FileOutputStream(outputFile)))) {
+             BitOutputStream out = new BitOutputStream(new BufferedOutputStream(new FileOutputStream(outputFile1)))) {
             compress(in, out);
+        }
+
+        // Perform file decompression
+        try (BitInputStream in = new BitInputStream(new BufferedInputStream(new FileInputStream(outputFile1)));
+             OutputStream out = new BufferedOutputStream(new FileOutputStream(outputFile2))) {
+            decompress(in, out);
         }
     }
 
@@ -49,6 +58,22 @@ public class AdaptiveArithmeticCompress {
         }
         enc.write(freqs, 256);  // EOF
         enc.finish();  // Flush remaining code bits
+    }
+
+
+    // To allow unit testing, this method is package-private instead of private.
+    static void decompress(BitInputStream in, OutputStream out) throws IOException {
+        FlatFrequencyTable initFreqs = new FlatFrequencyTable(257);
+        FrequencyTable freqs = new SimpleFrequencyTable(initFreqs);
+        ArithmeticDecoder dec = new ArithmeticDecoder(32, in);
+        while (true) {
+            // Decode and write one byte
+            int symbol = dec.read(freqs);
+            if (symbol == 256)  // EOF symbol
+                break;
+            out.write(symbol);
+            freqs.increment(symbol);
+        }
     }
 
 }

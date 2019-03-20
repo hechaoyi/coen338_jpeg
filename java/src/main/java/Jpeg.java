@@ -26,8 +26,7 @@ public class Jpeg {
     protected List<int[]> componentY = new ArrayList<>();
     protected List<int[]> componentCb = new ArrayList<>();
     protected List<int[]> componentCr = new ArrayList<>();
-    private Map<Huffman, Map<Integer, Integer>> symbolFreqStats = new HashMap<>();
-    private Map<Huffman, Map<Integer, Integer>> categoryFreqStats = new HashMap<>();
+    protected Map<Huffman, Map<Integer, Integer>> symbolFreqStats = new HashMap<>();
 
     public Jpeg(String inputFileName, String outputFileName) {
         this.inputFileName = inputFileName;
@@ -64,20 +63,14 @@ public class Jpeg {
         double entropyDc1 = entropy(this.symbolFreqStats.get(this.getDc1()).values());
         double theoreticalDc = entropyDc0 * this.symbolFreqStats.get(this.getDc0()).values().stream().mapToInt(f -> f).sum()
                 + entropyDc1 * this.symbolFreqStats.get(this.getDc1()).values().stream().mapToInt(f -> f).sum();
-        System.out.printf(
-                "DC length: %d, theoretical limit %d; DC0 entropy %f, DC1 entropy %f; DC0 category entropy %f, DC1 category entropy %f\n",
-                this.dcValueBits / 8, (int) theoreticalDc / 8, entropyDc0, entropyDc1,
-                entropy(this.categoryFreqStats.get(this.getDc0()).values()),
-                entropy(this.categoryFreqStats.get(this.getDc1()).values()));
+        System.out.printf("DC length: %d, theoretical limit %d; DC0 entropy %f, DC1 entropy %ff\n",
+                this.dcValueBits / 8, (int) theoreticalDc / 8, entropyDc0, entropyDc1);
         double entropyAc0 = entropy(this.symbolFreqStats.get(this.getAc0()).values());
         double entropyAc1 = entropy(this.symbolFreqStats.get(this.getAc1()).values());
         double theoreticalAc = entropyAc0 * this.symbolFreqStats.get(this.getAc0()).values().stream().mapToInt(f -> f).sum()
                 + entropyAc1 * this.symbolFreqStats.get(this.getAc1()).values().stream().mapToInt(f -> f).sum();
-        System.out.printf(
-                "AC length: %d, theoretical limit %d; AC0 entropy %f, AC1 entropy %f; AC0 category entropy %f, AC1 category entropy %f\n",
-                this.acValueBits / 8, (int) theoreticalAc / 8, entropyAc0, entropyAc1,
-                entropy(this.categoryFreqStats.get(this.getAc0()).values()),
-                entropy(this.categoryFreqStats.get(this.getAc1()).values()));
+        System.out.printf("AC length: %d, theoretical limit %d; AC0 entropy %f, AC1 entropy %f\n",
+                this.acValueBits / 8, (int) theoreticalAc / 8, entropyAc0, entropyAc1);
         System.out.printf("%d bytes read, %d bytes written\n", this.bytesRead, this.bytesWritten);
     }
 
@@ -458,13 +451,11 @@ public class Jpeg {
 
     private int encodeValueInRunningCategory(int zeros, int symbol, int maxCategory, Huffman huffman, int[] bitsHolder) {
         this.symbolFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
-                .compute(symbol, (s, c) -> c != null ? c + 1 : 1);
+                .compute(((zeros << 12) | symbol), (s, c) -> c != null ? c + 1 : 1);
         int absSymbol = abs(symbol);
         for (int i = 0; i <= maxCategory; i++) {
             if (absSymbol < (int) pow(2, i)) {
                 int category = (zeros << 4) | i;
-                this.categoryFreqStats.computeIfAbsent(huffman, h -> new HashMap<>())
-                        .compute(category, (s, c) -> c != null ? c + 1 : 1);
                 int code = huffman.findCode((byte) category, bitsHolder);
                 bitsHolder[0] += i;
                 if (symbol < 0)
