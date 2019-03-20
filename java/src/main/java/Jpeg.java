@@ -132,7 +132,7 @@ public class Jpeg {
         int y = this.readWord(3);
         int cb = this.readWord(3);
         int cr = this.readWord(3);
-        checkState(y == 0x012200 && cb == 0x021101 && cr == 0x031101);
+        checkState(y == 0x012200 && cb == 0x021101 && cr == 0x031101, String.format("%x %x %x", y, cb, cr));
         this.writeWord(os, 0xffc0, 2);
         this.writeWord(os, length, 2);
         this.writeWord(os, sample, 1);
