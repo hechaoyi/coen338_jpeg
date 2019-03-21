@@ -146,23 +146,40 @@ class PiedPiper {
             src[srcPos + i] -= dst[i];
     }
 
+    private static String currentDirectory(String path) {
+        if (!path.contains("/"))
+            return path;
+        return path.substring(path.lastIndexOf("/") + 1);
+    }
+
     public static void main(String[] args) throws IOException {
-        if (args.length != 2) {
-            System.err.println("Usage: java PiedPiper -encode <InputFile>");
-            System.err.println("Usage: java PiedPiper -decode <InputFile>");
-            System.exit(1);
-        } else if ("-encode".equals(args[0])) {
-            String inputFile = args[1];
-            String outputFile = args[1].replaceAll("[.].+?$", ".jpp");
-            new PiedPiperEncoder(inputFile, outputFile).recompress();
-        } else if ("-decode".equals(args[0])) {
-            String inputFile = args[1];
-            String outputFile = inputFile.replaceAll("[.].+?$", ".out.jpg");
-            new PiedPiperDecoder(inputFile, outputFile).recompress();
-        } else {
-            System.err.println("Usage: java PiedPiper -encode <InputFile>");
-            System.err.println("Usage: java PiedPiper -decode <InputFile>");
-            System.exit(1);
+        if (args.length == 2) {
+            if ("-analysis".equals(args[0])) {
+                String inputFile = args[1];
+                String outputFile = inputFile.replaceAll("[.].+?$", ".out.jpg");
+                new Jpeg(inputFile, currentDirectory(outputFile)).recompress();
+                return;
+            } else if ("-encode".equals(args[0])) {
+                String inputFile = args[1];
+                String outputFile = inputFile.replaceAll("[.].+?$", ".jpp");
+                new PiedPiperEncoder(inputFile, currentDirectory(outputFile)).recompress();
+                return;
+            } else if ("-decode".equals(args[0])) {
+                String inputFile = args[1];
+                String outputFile = inputFile.replaceAll("[.].+?$", ".out.jpg");
+                new PiedPiperDecoder(inputFile, currentDirectory(outputFile)).recompress();
+                return;
+            } else if ("-arithmetic".equals(args[0])) {
+                String inputFile = args[1];
+                String outputFile = inputFile.replaceAll("[.].+?$", ".out.jpg");
+                new JpegArithEncoder(inputFile, currentDirectory(outputFile)).recompress();
+                return;
+            }
         }
+        System.err.println("Usage: java PiedPiper -analysis <InputFile>");
+        System.err.println("Usage: java PiedPiper -encode <InputFile>");
+        System.err.println("Usage: java PiedPiper -decode <InputFile>");
+        System.err.println("Usage: java PiedPiper -arithmetic <InputFile>");
+        System.exit(1);
     }
 }
