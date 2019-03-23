@@ -19,7 +19,7 @@ class JpegArithEncoder extends Jpeg {
 
     @Override
     protected void writeScan(OutputStream os) {
-        var output = new BitOutputStream(new OutputStream() {
+        BitOutputStream output = new BitOutputStream(new OutputStream() {
             @Override
             public void write(int b) {
                 writeWord(os, b, 1);
@@ -129,9 +129,7 @@ class JpegArith {
     public static void main(String[] args) throws IOException {
         String file = "images/VEll6n1SaRHUyAiMHpg7tA.jpg";
         String jpp = file.replaceAll("[.].+?$", ".jpp");
-        var jae = new JpegArithEncoder(file, jpp);
-        jae.recompress();
-        var jad = new JpegArithDecoder(jpp, file.replaceAll("[.].+?$", ".out.jpg"));
-        jad.recompress();
+        new JpegArithEncoder(file, jpp).recompress();
+        new JpegArithDecoder(jpp, file.replaceAll("[.].+?$", ".out.jpg")).recompress();
     }
 }

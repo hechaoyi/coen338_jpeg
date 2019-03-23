@@ -34,8 +34,8 @@ public class Jpeg {
     }
 
     public void recompress() throws IOException {
-        try (var is = new BufferedInputStream(new FileInputStream(this.inputFileName));
-             var os = new BufferedOutputStream(new FileOutputStream(this.outputFileName))) {
+        try (InputStream is = new BufferedInputStream(new FileInputStream(this.inputFileName));
+             OutputStream os = new BufferedOutputStream(new FileOutputStream(this.outputFileName))) {
             this.is = is;
 
             // SOI
@@ -165,7 +165,7 @@ public class Jpeg {
                 bytes = Arrays.copyOf(bytes, 16 + count);
                 System.arraycopy(this.read(count), 0, bytes, 16, count);
                 remaining -= 17 + count;
-                var huffman = new Huffman(bytes);
+                Huffman huffman = new Huffman(bytes);
                 if ((id & 0xf0) == 0 && (id & 0x0f) == 0) {
                     this.dc0 = huffman;
                     huffman.setName("DC0");
@@ -313,14 +313,14 @@ public class Jpeg {
     }
 
     protected int readDcValue(Huffman huffman) {
-        var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
+        Huffman.Result res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
         this.scanCurrent = res.current;
         this.scanOffset = res.offset;
         return this.readValueInCategory(res.symbol & 0xff);
     }
 
     protected int readAcValue(Huffman huffman, int[] zeroHolder) {
-        var res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
+        Huffman.Result res = huffman.findSymbol(this.scanCurrent, this.scanOffset, this::nextByteInScan);
         zeroHolder[0] = (res.symbol & 0xf0) >> 4;
         this.scanCurrent = res.current;
         this.scanOffset = res.offset;
@@ -479,7 +479,8 @@ public class Jpeg {
 
     private byte[] read(int n) {
         try {
-            byte[] bytes = this.is.readNBytes(n);
+            byte[] bytes = new byte[n];
+            checkState(this.is.read(bytes) == n);
             this.bytesRead += n;
             return bytes;
         } catch (IOException e) {
@@ -498,7 +499,9 @@ public class Jpeg {
 
     private void copy(OutputStream os, int n) {
         try {
-            os.write(this.is.readNBytes(n));
+            byte[] bytes = new byte[n];
+            checkState(this.is.read(bytes) == n);
+            os.write(bytes);
             this.bytesRead += n;
             this.bytesWritten += n;
         } catch (IOException e) {
@@ -524,7 +527,8 @@ public class Jpeg {
             checkArgument(n <= 4 && n > 0);
             if (mark > 0)
                 this.is.mark(mark);
-            byte[] bytes = this.is.readNBytes(n);
+            byte[] bytes = new byte[n];
+            checkState(this.is.read(bytes) == n);
             int word = 0;
             for (int i = 0; i < n; i++)
                 word |= (bytes[i] & 0xff) << (n - i - 1) * 8;
@@ -561,7 +565,6 @@ public class Jpeg {
 
     public static void main(String[] args) throws IOException {
         String file = "images/VEll6n1SaRHUyAiMHpg7tA.jpg";
-        var jpeg = new Jpeg(file, file.replaceAll("[.].+?$", ".out.jpg"));
-        jpeg.recompress();
+        new Jpeg(file, file.replaceAll("[.].+?$", ".out.jpg")).recompress();
     }
 }

@@ -138,23 +138,23 @@ class TreeNode implements Comparable<TreeNode> {
     }
 
     static byte[] build(int[] frequencies) {
-        var heap = new PriorityQueue<TreeNode>();
+        PriorityQueue<TreeNode> heap = new PriorityQueue<>();
         for (int i = 0; i < frequencies.length; i++)
             if (frequencies[i] > 0)
                 heap.add(new TreeNode(i, frequencies[i], null, null));
         int count = heap.size();
         while (heap.size() > 1) {
-            var right = heap.remove();
-            var left = heap.remove();
+            TreeNode right = heap.remove();
+            TreeNode left = heap.remove();
             heap.add(new TreeNode(0, left.freq + right.freq, left, right));
         }
-        var queue = new ArrayDeque<>(heap);
-        var result = new ArrayList<List<Integer>>();
+        Deque<TreeNode> queue = new ArrayDeque<>(heap);
+        List<List<Integer>> result = new ArrayList<>();
         while (!queue.isEmpty()) {
-            var level = new ArrayList<Integer>();
+            List<Integer> level = new ArrayList<>();
             int size = queue.size();
             for (int i = 0; i < size; i++) {
-                var node = queue.remove();
+                TreeNode node = queue.remove();
                 if (node.isLeaf()) {
                     level.add(node.symbol);
                 } else {

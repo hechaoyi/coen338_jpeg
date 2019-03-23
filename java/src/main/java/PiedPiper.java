@@ -15,11 +15,11 @@ class PiedPiperEncoder extends Jpeg {
 
     @Override
     protected void quantizeAndPredict() {
-        var prevComponentY = this.componentY.stream()
+        List<int[]> prevComponentY = this.componentY.stream()
                 .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
-        var prevComponentCb = this.componentCb.stream()
+        List<int[]> prevComponentCb = this.componentCb.stream()
                 .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
-        var prevComponentCr = this.componentCr.stream()
+        List<int[]> prevComponentCr = this.componentCr.stream()
                 .map(z -> Arrays.copyOf(z, 64)).collect(Collectors.toList());
         this.quantizeAndPredict(this.componentY, this.prevComponentY,
                 this.quantizationTable0, true, this.width / 4);
@@ -63,13 +63,13 @@ class PiedPiperDecoder extends Jpeg {
         this.depredictAndDequantize(this.componentCr, this.prevComponentCr,
                 this.quantizationTable1, false, this.width / 16);
         this.prevComponentY.clear();
-        for (var zigzag : this.componentY)
+        for (int[] zigzag : this.componentY)
             this.prevComponentY.add(Arrays.copyOf(zigzag, 64));
         this.prevComponentCb.clear();
-        for (var zigzag : this.componentCb)
+        for (int[] zigzag : this.componentCb)
             this.prevComponentCb.add(Arrays.copyOf(zigzag, 64));
         this.prevComponentCr.clear();
-        for (var zigzag : this.componentCr)
+        for (int[] zigzag : this.componentCr)
             this.prevComponentCr.add(Arrays.copyOf(zigzag, 64));
     }
 
